@@ -2,9 +2,11 @@ import asyncio
 import os
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
+from typing import Dict, Any
 
 from handlers.ranking import router as ranking_router
 from services.import_ratings import import_ratings_from_sheet
@@ -12,6 +14,15 @@ from services.import_ratings import import_ratings_from_sheet
 API_BASE_URL = os.getenv("API_BASE_URL", "http://backend:8000")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 RATING_SHEET_CSV_URL = os.getenv("RATING_SHEET_CSV_URL", "")
+
+async def api_base_url_middleware(
+    handler,
+    event,
+    data: Dict[str, Any]
+) -> Any:
+    """Middleware для передачи API_BASE_URL в handlers."""
+    data["api_base_url"] = API_BASE_URL
+    return await handler(event, data)
 
 
 async def on_start(message: Message):
@@ -50,12 +61,10 @@ async def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not set")
 
-    bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
-    # сохраняем базовый URL API в объекте бота,
-    # чтобы хендлеры могли к нему обращаться
-    bot["api_base_url"] = API_BASE_URL
+    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
     dp = Dispatcher()
+    dp.update.middleware(api_base_url_middleware)
 
     # Команды верхнего уровня
     dp.message.register(on_start, CommandStart())

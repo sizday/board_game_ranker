@@ -14,7 +14,7 @@ class GameModel(Base):
     niza_games_rank = Column(Integer, nullable=True)
     # Ограничиваем жанр только перечисленными значениями через PostgreSQL ENUM
     genre = Column(
-        Enum(GameGenre, name="game_genre"),
+        Enum(GameGenre),
         nullable=True,
     )
 

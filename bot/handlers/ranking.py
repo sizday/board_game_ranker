@@ -3,10 +3,68 @@ from __future__ import annotations
 import httpx
 from aiogram import Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 
 router = Router()
+
+
+async def _handle_phase_transition(
+    callback: CallbackQuery,
+    state: FSMContext,
+    payload: dict,
+    session_id: int,
+) -> None:
+    """Обрабатывает переходы между состояниями на основе phase из API ответа."""
+    phase = payload.get("phase")
+
+    if phase == "first_tier":
+        await state.set_state(RankingStates.first_tier)
+        game = payload["next_game"]
+        text = (
+            f"Игра: <b>{game['name']}</b>\n"
+            f"Отметь, насколько она тебе понравилась."
+        )
+        await callback.message.edit_text(
+            text,
+            reply_markup=_first_tier_keyboard(
+                session_id=session_id,
+                game_id=game["id"],
+            ),
+        )
+    elif phase == "second_tier":
+        await state.set_state(RankingStates.second_tier)
+        game = payload["next_game"]
+        text = (
+            "Отлично! Теперь уточним, какие игры прямо топчик.\n\n"
+            f"Игра: <b>{game['name']}</b>\n"
+            f"Выбери, насколько она крутая."
+        )
+        await callback.message.edit_text(
+            text,
+            reply_markup=_second_tier_keyboard(
+                session_id=session_id,
+                game_id=game["id"],
+            ),
+        )
+    elif phase == "final":
+        await state.set_state(RankingStates.final)
+        top = payload.get("top", [])
+        lines = [f"{item['rank']}. {item['name']}" for item in top]
+        text = "Твой предварительный топ-50:\n\n" + "\n".join(lines)
+        await callback.message.edit_text(text)
+    elif phase == "completed":
+        await state.set_state(RankingStates.completed)
+        await callback.message.edit_text(payload.get("message", "Готово."))
+
+
+class RankingStates(StatesGroup):
+    first_tier = State()
+    second_tier = State()
+    final = State()
+    completed = State()
 
 
 def _first_tier_keyboard(session_id: int, game_id: int) -> InlineKeyboardMarkup:
@@ -80,22 +138,22 @@ async def _send_first_tier_question(
 
 
 @router.message(Command("start_ranking"))
-async def cmd_start_ranking(message: Message):
+async def cmd_start_ranking(message: Message, state: FSMContext):
     api_base_url = message.bot["api_base_url"]
     user_name = message.from_user.full_name or str(message.from_user.id)
 
     try:
         await _send_first_tier_question(message, api_base_url, user_name)
+        await state.set_state(RankingStates.first_tier)
     except Exception as exc:  # noqa: BLE001
         await message.answer(f"Не удалось начать ранжирование: {exc}")
 
 
-@router.callback_query()
-async def ranking_callbacks(callback: CallbackQuery):
+@router.callback_query(RankingStates.first_tier)
+async def handle_first_tier_callback(callback: CallbackQuery, state: FSMContext, api_base_url: str):
     """
-    Обрабатывает callback-данные для первого и второго этапов ранжирования.
+    Обрабатывает callback-данные для первого этапа ранжирования.
     """
-    api_base_url = callback.message.bot["api_base_url"]  # type: ignore[index]
     data = callback.data or ""
 
     try:
@@ -106,76 +164,135 @@ async def ranking_callbacks(callback: CallbackQuery):
         await callback.answer("Некорректные данные.", show_alert=True)
         return
 
+    # Проверяем, что это callback первого этапа
+    if kind != "first":
+        await callback.answer("Некорректный тип действия для текущего этапа.", show_alert=True)
+        return
+
     await callback.answer()
 
     try:
         async with httpx.AsyncClient() as client:
-            if kind == "first":
-                resp = await client.post(
-                    f"{api_base_url}/api/ranking/answer-first",
-                    json={
-                        "session_id": session_id,
-                        "game_id": game_id,
-                        "tier": tier,
-                    },
-                    timeout=30.0,
-                )
-            elif kind == "second":
-                resp = await client.post(
-                    f"{api_base_url}/api/ranking/answer-second",
-                    json={
-                        "session_id": session_id,
-                        "game_id": game_id,
-                        "tier": tier,
-                    },
-                    timeout=30.0,
-                )
-            else:
-                await callback.message.answer("Неизвестный тип действия.")
-                return
-
+            resp = await client.post(
+                f"{api_base_url}/api/ranking/answer-first",
+                json={
+                    "session_id": session_id,
+                    "game_id": game_id,
+                    "tier": tier,
+                },
+                timeout=30.0,
+            )
             resp.raise_for_status()
 
         payload = resp.json()
-        phase = payload.get("phase")
-
-        if phase == "first_tier":
-            game = payload["next_game"]
-            text = (
-                f"Игра: <b>{game['name']}</b>\n"
-                f"Отметь, насколько она тебе понравилась."
-            )
-            await callback.message.edit_text(
-                text,
-                reply_markup=_first_tier_keyboard(
-                    session_id=session_id,
-                    game_id=game["id"],
-                ),
-            )
-        elif phase == "second_tier":
-            game = payload["next_game"]
-            text = (
-                "Отлично! Теперь уточним, какие игры прямо топчик.\n\n"
-                f"Игра: <b>{game['name']}</b>\n"
-                f"Выбери, насколько она крутая."
-            )
-            await callback.message.edit_text(
-                text,
-                reply_markup=_second_tier_keyboard(
-                    session_id=session_id,
-                    game_id=game["id"],
-                ),
-            )
-        elif phase == "final":
-            top = payload.get("top", [])
-            lines = [f"{item['rank']}. {item['name']}" for item in top]
-            text = "Твой предварительный топ-50:\n\n" + "\n".join(lines)
-            await callback.message.edit_text(text)
-        elif phase == "completed":
-            await callback.message.edit_text(payload.get("message", "Готово."))
-        else:
-            await callback.message.answer("Неожиданное состояние сессии.")
+        await _handle_phase_transition(callback, state, payload, session_id)
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка при обновлении рейтинга: {exc}")
+
+
+@router.callback_query(RankingStates.second_tier)
+async def handle_second_tier_callback(callback: CallbackQuery, state: FSMContext, api_base_url: str):
+    """
+    Обрабатывает callback-данные для второго этапа ранжирования.
+    """
+    data = callback.data or ""
+
+    try:
+        kind, session_id_str, game_id_str, tier = data.split(":", 3)
+        session_id = int(session_id_str)
+        game_id = int(game_id_str)
+    except Exception:  # noqa: BLE001
+        await callback.answer("Некорректные данные.", show_alert=True)
+        return
+
+    # Проверяем, что это callback второго этапа
+    if kind != "second":
+        await callback.answer("Некорректный тип действия для текущего этапа.", show_alert=True)
+        return
+
+    await callback.answer()
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{api_base_url}/api/ranking/answer-second",
+                json={
+                    "session_id": session_id,
+                    "game_id": game_id,
+                    "tier": tier,
+                },
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+
+        payload = resp.json()
+        await _handle_phase_transition(callback, state, payload, session_id)
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка при обновлении рейтинга: {exc}")
+
+
+@router.callback_query(RankingStates.final)
+async def handle_final_callback(callback: CallbackQuery, state: FSMContext, api_base_url: str):
+    """
+    Обрабатывает callback-данные в состоянии final (результаты готовы).
+    """
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔄 Начать заново",
+                    callback_data="restart_ranking",
+                )
+            ]
+        ]
+    )
+
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+    await callback.answer("Хотите начать новое ранжирование?", show_alert=True)
+
+
+@router.callback_query(RankingStates.completed)
+async def handle_completed_callback(callback: CallbackQuery, state: FSMContext, api_base_url: str):
+    """
+    Обрабатывает callback-данные в состоянии completed (ранжирование окончено).
+    """
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔄 Начать заново",
+                    callback_data="restart_ranking",
+                )
+            ]
+        ]
+    )
+
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
+    await callback.answer("Хотите начать новое ранжирование?", show_alert=True)
+
+
+@router.callback_query()
+async def handle_restart_ranking(callback: CallbackQuery, state: FSMContext, api_base_url: str):
+    """
+    Обрабатывает запрос на перезапуск ранжирования.
+    """
+    data = callback.data or ""
+
+    if data != "restart_ranking":
+        return
+
+    await callback.answer()
+
+    # Сбрасываем состояние
+    await state.clear()
+
+    # Начинаем новое ранжирование
+    user_name = callback.from_user.full_name or str(callback.from_user.id)
+
+    try:
+        await _send_first_tier_question(callback.message, api_base_url, user_name)
+        await state.set_state(RankingStates.first_tier)
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Не удалось начать ранжирование: {exc}")
 
 

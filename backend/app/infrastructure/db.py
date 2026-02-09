@@ -14,10 +14,19 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 Base = declarative_base()
 
 
+def get_db():
+    """Database dependency for FastAPI."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 def init_db() -> None:
     """Создает таблицы в БД, если их еще нет."""
     from . import models  # noqa: F401
 
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=engine, checkfirst=True)
 
 

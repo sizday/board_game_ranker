@@ -11,7 +11,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   bot:
     build:
@@ -33,6 +34,11 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U board_user -d board_games"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   db_data:
