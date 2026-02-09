@@ -13,6 +13,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   bot:
     build:
@@ -21,8 +27,10 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - API_BASE_URL=http://backend:8000
+      - RATING_SHEET_CSV_URL=${RATING_SHEET_CSV_URL}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   db:
     image: postgres:15
