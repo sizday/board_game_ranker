@@ -35,6 +35,7 @@ def test_bot_config():
 
         print("✅ Bot config загружен")
         print(f"   BOT_TOKEN: {'***' + config.BOT_TOKEN[-4:] if config.BOT_TOKEN else 'не задан'}")
+        print(f"   ADMIN_USER_ID: {config.ADMIN_USER_ID}")
         print(f"   API_BASE_URL: {config.API_BASE_URL}")
         print(f"   RATING_SHEET_CSV_URL: {'***' if config.RATING_SHEET_CSV_URL else 'не задан'}")
         print(f"   DB_HOST: {config.DB_HOST}")

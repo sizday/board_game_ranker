@@ -24,6 +24,12 @@ cp env.example .env
 3. Следуйте инструкциям для создания бота
 4. Скопируйте токен (начинается с числа, например: `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
 
+### 2.2. Получите ваш Telegram User ID
+
+1. Напишите [@userinfobot](https://t.me/userinfobot) в Telegram
+2. Отправьте любое сообщение
+3. Бот ответит вашим User ID (число, например: `123456789`)
+
 ### 2.2. Настройте Google Sheets
 
 1. Создайте Google таблицу с данными о играх
@@ -34,6 +40,7 @@ cp env.example .env
 
 Заполните `.env` файл:
 - `BOT_TOKEN` - токен от BotFather (обязательно)
+- `ADMIN_USER_ID` - ваш Telegram User ID от @userinfobot (обязательно)
 - `RATING_SHEET_CSV_URL` - ссылка на CSV экспорт таблицы (обязательно)
 - `DATABASE_URL` - строка подключения к PostgreSQL (уже настроена для Docker)
 - `API_BASE_URL` - URL backend API (уже настроен для Docker)
@@ -101,7 +108,7 @@ docker-compose down
 ## Команды бота
 
 - `/start` - начать работу с ботом
-- `/import_ratings` - загрузить данные из Google таблицы
+- `/import_ratings` - загрузить данные из Google таблицы (только для админа)
 - `/start_ranking` - начать процесс ранжирования игр
 
 ## Импорт данных
