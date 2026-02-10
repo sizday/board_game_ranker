@@ -22,18 +22,30 @@ async def api_base_url_middleware(
 
 
 async def on_start(message: Message):
+    commands = [
+        "/start_ranking — начать формирование рейтинга"
+    ]
+
+    # Добавляем команду импорта только для админа
+    if config.is_admin(message.from_user.id):
+        commands.insert(0, "/import_ratings — загрузить данные из Google-таблицы")
+
     await message.answer(
         "Привет! Я помогу составить топ-50 твоих настольных игр.\n"
-        "Команды:\n"
-        "/import_ratings — загрузить данные из Google-таблицы\n"
-        "/start_ranking — начать формирование рейтинга"
+        "Команды:\n" + "\n".join(commands)
     )
 
 
 async def on_import_ratings(message: Message):
     """
     Команда для импорта данных из Google-таблицы в БД через backend API.
+    Доступна только админу.
     """
+    # Проверка прав доступа
+    if not config.is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
+        return
+
     await message.answer("Начинаю загрузку данных из Google-таблицы...")
 
     try:

@@ -11,6 +11,9 @@ class BotConfig:
     # Telegram Bot
     BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
 
+    # Admin настройки
+    ADMIN_USER_ID: Optional[int] = int(os.getenv("ADMIN_USER_ID", "0")) if os.getenv("ADMIN_USER_ID") else None
+
     # API настройки
     API_BASE_URL: str = os.getenv("API_BASE_URL", "http://backend:8000")
 
@@ -52,6 +55,13 @@ class BotConfig:
 
         if not self.RATING_SHEET_CSV_URL:
             raise ValueError("RATING_SHEET_CSV_URL is required")
+
+        if not self.ADMIN_USER_ID:
+            raise ValueError("ADMIN_USER_ID is required")
+
+    def is_admin(self, user_id: int) -> bool:
+        """Проверка, является ли пользователь админом"""
+        return self.ADMIN_USER_ID == user_id
 
     @property
     def is_production(self) -> bool:

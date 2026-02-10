@@ -4,13 +4,18 @@
 """
 import os
 import sys
+from pathlib import Path
+
+# Добавляем корень проекта в sys.path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 def test_backend_config():
     """Тестирование backend конфигурации"""
     print("🔧 Тестирование backend конфигурации...")
 
     try:
-        sys.path.append('backend')
+        sys.path.insert(0, str(project_root / 'backend'))
         from app.config import config
 
         print("✅ Backend config загружен")
@@ -30,11 +35,12 @@ def test_bot_config():
     print("\n🤖 Тестирование bot конфигурации...")
 
     try:
-        sys.path.append('bot')
+        sys.path.insert(0, str(project_root / 'bot'))
         from config import config
 
         print("✅ Bot config загружен")
         print(f"   BOT_TOKEN: {'***' + config.BOT_TOKEN[-4:] if config.BOT_TOKEN else 'не задан'}")
+        print(f"   ADMIN_USER_ID: {config.ADMIN_USER_ID}")
         print(f"   API_BASE_URL: {config.API_BASE_URL}")
         print(f"   RATING_SHEET_CSV_URL: {'***' if config.RATING_SHEET_CSV_URL else 'не задан'}")
         print(f"   DB_HOST: {config.DB_HOST}")

@@ -8,7 +8,7 @@
 
 ```bash
 git clone <repository-url>
-cd board-game-ranker
+cd board_game_ranker
 ```
 
 ### 2. Создайте файл с переменными окружения
@@ -24,16 +24,23 @@ cp env.example .env
 3. Следуйте инструкциям для создания бота
 4. Скопируйте токен (начинается с числа, например: `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
 
-### 2.2. Настройте Google Sheets
+### 2.2. Получите ваш Telegram User ID
+
+1. Напишите [@userinfobot](https://t.me/userinfobot) в Telegram
+2. Отправьте любое сообщение
+3. Бот ответит вашим User ID (число, например: `123456789`)
+
+### 2.3. Настройте Google Sheets
 
 1. Создайте Google таблицу с данными о играх
 2. Опубликуйте таблицу: **Файл → Поделиться → Опубликовать в интернете**
 3. Выберите формат CSV и скопируйте ссылку на экспорт
 
-### 2.3. Заполните переменные окружения
+### 2.4. Заполните переменные окружения
 
 Заполните `.env` файл:
 - `BOT_TOKEN` - токен от BotFather (обязательно)
+- `ADMIN_USER_ID` - ваш Telegram User ID от @userinfobot (обязательно)
 - `RATING_SHEET_CSV_URL` - ссылка на CSV экспорт таблицы (обязательно)
 - `DATABASE_URL` - строка подключения к PostgreSQL (уже настроена для Docker)
 - `API_BASE_URL` - URL backend API (уже настроен для Docker)
@@ -46,9 +53,6 @@ cp env.example .env
 ```bash
 # Полный запуск всех сервисов
 docker-compose up -d
-
-# Или с миграциями базы данных
-docker-compose --profile migrate up -d
 ```
 
 ### 4. Проверьте статус
@@ -101,7 +105,7 @@ docker-compose down
 ## Команды бота
 
 - `/start` - начать работу с ботом
-- `/import_ratings` - загрузить данные из Google таблицы
+- `/import_ratings` - загрузить данные из Google таблицы (только для админа)
 - `/start_ranking` - начать процесс ранжирования игр
 
 ## Импорт данных
@@ -127,7 +131,10 @@ docker-compose down
 cd backend
 pip install -r requirements-backend.txt
 # Установите переменные окружения или создайте .env файл
-export DATABASE_URL="postgresql+psycopg2://board_user:board_password@localhost:5432/board_games"
+# Linux/macOS:
+# export DATABASE_URL="postgresql+psycopg2://board_user:board_password@localhost:5432/board_games"
+# Windows PowerShell:
+# $env:DATABASE_URL="postgresql+psycopg2://board_user:board_password@localhost:5432/board_games"
 python wsgi.py
 ```
 
@@ -137,7 +144,11 @@ python wsgi.py
 cd bot
 pip install -r requirements-bot.txt
 # Установите переменные окружения
-export BOT_TOKEN="your_bot_token"
-export RATING_SHEET_CSV_URL="your_csv_url"
+# Linux/macOS:
+# export BOT_TOKEN="your_bot_token"
+# export RATING_SHEET_CSV_URL="your_csv_url"
+# Windows PowerShell:
+# $env:BOT_TOKEN="your_bot_token"
+# $env:RATING_SHEET_CSV_URL="your_csv_url"
 python main.py
 ```

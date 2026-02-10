@@ -1,5 +1,12 @@
 import asyncio
+import sys
+from pathlib import Path
 import httpx
+
+# Добавляем корень проекта в sys.path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 from bot.services.import_ratings import import_ratings_from_sheet
 
 async def test_import():
