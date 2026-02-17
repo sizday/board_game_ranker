@@ -54,6 +54,9 @@ class Config:
     DEBUG: bool = APP_ENV == "development"
     TESTING: bool = os.getenv("TESTING", "false").lower() == "true"
 
+    # BGG / внешние API
+    BGG_BEARER_TOKEN: Optional[str] = os.getenv("BGG_BEARER_TOKEN")
+
 
 class DevelopmentConfig(Config):
     """Конфигурация для разработки"""

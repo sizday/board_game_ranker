@@ -7,6 +7,7 @@ from app.domain.services import rank_games
 from app.infrastructure.db import SessionLocal, get_db
 from app.infrastructure.repositories import replace_all_from_table
 from app.services.ranking import RankingService
+from app.services.bgg import search_boardgame, get_boardgame_details
 
 router = APIRouter()
 
@@ -59,6 +60,21 @@ class RankingAnswerResponse(BaseModel):
     next_game: GameItem = None
     top: List[GameItem] = None
     message: str = ""
+
+
+class BGGGameDetails(BaseModel):
+    id: int | None
+    name: str | None
+    yearpublished: int | None
+    rank: int | None
+    bayesaverage: float | None
+    usersrated: int | None
+    image: str | None
+    thumbnail: str | None
+
+
+class BGGSearchResponse(BaseModel):
+    games: List[BGGGameDetails]
 
 
 @router.post("/rank", response_model=RankGamesResponse)
@@ -197,3 +213,25 @@ async def ranking_answer_second(request: RankingAnswerRequest, db: Session = Dep
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/bgg/search", response_model=BGGSearchResponse)
+async def bgg_search(name: str, exact: bool = False) -> BGGSearchResponse:
+    """
+    Поиск игр на BGG по названию с возвратом подробной информации,
+    включая мировой рейтинг и URL изображений.
+    """
+    try:
+        found = search_boardgame(name, exact=exact)
+        if not found:
+            return BGGSearchResponse(games=[])
+
+        # Для каждого найденного ID забираем подробности
+        games: List[BGGGameDetails] = []
+        for item in found:
+            details = get_boardgame_details(item["id"])
+            games.append(BGGGameDetails(**details))
+
+        return BGGSearchResponse(games=games)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Ошибка при обращении к BGG: {exc}")
