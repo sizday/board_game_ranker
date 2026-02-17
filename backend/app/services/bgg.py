@@ -193,6 +193,11 @@ def _parse_thing_response(xml_text: str) -> Dict[str, Any]:
     bayesavg_el = stats_el.find("bayesaverage") if stats_el is not None else None
     ranks_parent = stats_el.find("ranks") if stats_el is not None else None
 
+    # Описание
+    description_el = item.find("description")
+    # В XML BGG описание может содержать HTML‑сущности и переводы строк.
+    description_text = description_el.text if description_el is not None else None
+
     # Изображения
     image_el = item.find("image")
     thumb_el = item.find("thumbnail")
@@ -227,6 +232,7 @@ def _parse_thing_response(xml_text: str) -> Dict[str, Any]:
         "usersrated": _to_int(usersrated_el.attrib.get("value") if usersrated_el is not None else None),
         "image": image_url,
         "thumbnail": thumb_url,
+        "description": description_text,
     }
 
 
