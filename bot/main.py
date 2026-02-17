@@ -8,6 +8,7 @@ from aiogram.types import Message
 from typing import Dict, Any
 
 from handlers.ranking import router as ranking_router
+from handlers.bgg_game import router as bgg_game_router
 from services.import_ratings import import_ratings_from_sheet
 from config import config
 
@@ -78,8 +79,9 @@ async def main():
     dp.message.register(on_start, CommandStart())
     dp.message.register(on_import_ratings, Command("import_ratings"))
 
-    # Подключаем роутер с логикой ранжирования
+    # Подключаем роутеры
     dp.include_router(ranking_router)
+    dp.include_router(bgg_game_router)
 
     await dp.start_polling(bot)
 
