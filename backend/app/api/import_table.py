@@ -12,6 +12,9 @@ router = APIRouter()
 
 class ImportTableRequest(BaseModel):
     rows: List[dict]
+    # Если True — принудительно обновляем данные всех игр из BGG,
+    # иначе обновляем только те, у которых данные старше месяца.
+    is_forced_update: bool = False
 
 
 class ImportTableResponse(BaseModel):
@@ -24,7 +27,11 @@ class ImportTableResponse(BaseModel):
 async def import_table(request: ImportTableRequest, db: Session = Depends(get_db)):
     """Import games data from table to database."""
     try:
-        replace_all_from_table(db, request.rows)
+        replace_all_from_table(
+            db,
+            request.rows,
+            is_forced_update=request.is_forced_update,
+        )
         db.commit()
         return ImportTableResponse(status="ok", games_imported=len(request.rows))
     except Exception as exc:  # noqa: BLE001

@@ -57,6 +57,11 @@ class Config:
     # BGG / внешние API
     BGG_BEARER_TOKEN: Optional[str] = os.getenv("BGG_BEARER_TOKEN")
 
+    # Настройки обновления данных игр из BGG
+    # Количество дней, после которого данные игры считаются устаревшими
+    # и могут быть автоматически обновлены при импорте таблицы.
+    GAME_UPDATE_DAYS: int = int(os.getenv("GAME_UPDATE_DAYS", "30"))
+
 
 class DevelopmentConfig(Config):
     """Конфигурация для разработки"""

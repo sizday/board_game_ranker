@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, Column, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import relationship
 
 from .db import Base
@@ -10,12 +10,29 @@ class GameModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    # ID игры на BGG (для последующего обновления по API)
+    bgg_id = Column(Integer, nullable=True, index=True)
     bgg_rank = Column(Integer, nullable=True)
     niza_games_rank = Column(Integer, nullable=True)
     # Ограничиваем жанр только перечисленными значениями через PostgreSQL ENUM
     genre = Column(
         Enum(GameGenre),
         nullable=True,
+    )
+    # Статистика и доп. метаданные из BGG
+    yearpublished = Column(Integer, nullable=True)
+    bayesaverage = Column(Integer, nullable=True)
+    usersrated = Column(Integer, nullable=True)
+    image = Column(String, nullable=True)
+    thumbnail = Column(String, nullable=True)
+    description = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     ratings = relationship("RatingModel", back_populates="game", cascade="all, delete-orphan")
