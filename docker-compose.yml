@@ -35,9 +35,9 @@ services:
   db:
     image: postgres:15
     environment:
-      - POSTGRES_DB=board_games
-      - POSTGRES_USER=board_user
-      - POSTGRES_PASSWORD=board_password
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
