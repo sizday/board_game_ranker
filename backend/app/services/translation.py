@@ -23,11 +23,17 @@ class TranslationService:
     """
 
     def __init__(self):
+        logger.info("Initializing TranslationService...")
         self.translator = None
         if GOOGLETRANS_AVAILABLE:
             self.translator = Translator()
+            logger.info("TranslationService initialized successfully with Google Translate")
         else:
             logger.error("Translation service unavailable: googletrans not installed")
+
+        self.translation_count = 0
+        self.error_count = 0
+        logger.debug("TranslationService stats initialized: translations=0, errors=0")
 
     async def translate_to_russian(self, text: str) -> Optional[str]:
         """
@@ -37,11 +43,16 @@ class TranslationService:
         :return: Переведенный текст или None при ошибке
         """
         if not text or not text.strip():
+            logger.debug("Translation skipped: empty or whitespace-only text")
             return None
 
         if not self.translator:
-            logger.warning("Translation service not available")
+            logger.warning("Translation service not available - cannot translate text")
+            self.error_count += 1
             return None
+
+        text_length = len(text)
+        logger.debug(f"Starting translation of text ({text_length} chars)")
 
         try:
             # Google Translate работает синхронно, но мы запускаем в executor
@@ -52,11 +63,23 @@ class TranslationService:
             )
 
             translated_text = result.text
-            logger.debug(f"Translated text ({len(text)} chars) to Russian ({len(translated_text)} chars)")
+            translated_length = len(translated_text)
+
+            self.translation_count += 1
+            logger.info(f"✅ Translation successful: {text_length} → {translated_length} chars "
+                       f"(total: {self.translation_count}, errors: {self.error_count})")
+
+            # Логируем первые 100 символов для отладки
+            preview = translated_text[:100] + "..." if len(translated_text) > 100 else translated_text
+            logger.debug(f"Translation preview: {preview}")
+
             return translated_text
 
         except Exception as e:
-            logger.error(f"Error translating text: {e}", exc_info=True)
+            self.error_count += 1
+            logger.error(f"❌ Translation failed: {e} "
+                        f"(total: {self.translation_count}, errors: {self.error_count})",
+                        exc_info=True)
             return None
 
     async def is_available(self) -> bool:
@@ -69,8 +92,10 @@ class TranslationService:
 
         :param db: Сессия базы данных
         """
+        logger.info("🔄 Starting background translation task")
+
         if not self.translator:
-            logger.warning("Translation service not available, skipping background translation")
+            logger.warning("❌ Translation service not available, skipping background translation")
             return
 
         try:
@@ -83,38 +108,59 @@ class TranslationService:
                 .all()
             )
 
+            total_games = len(games_to_translate)
+
             if not games_to_translate:
-                logger.info("No games found that need translation")
+                logger.info("ℹ️  No games found that need translation")
                 return
 
-            logger.info(f"Starting background translation for {len(games_to_translate)} games")
+            logger.info(f"📚 Found {total_games} games that need translation")
+            logger.info("🚀 Starting background translation process...")
+
+            successful_translations = 0
+            failed_translations = 0
 
             # Переводим описания по одному (чтобы не перегружать API)
-            for game in games_to_translate:
+            for i, game in enumerate(games_to_translate, 1):
                 try:
-                    logger.debug(f"Translating description for game: {game.name}")
+                    logger.info(f"📖 [{i}/{total_games}] Translating game: {game.name} (ID: {game.id})")
 
                     translated_text = await self.translate_to_russian(game.description)
                     if translated_text:
                         game.description_ru = translated_text
-                        logger.info(f"Successfully translated description for game: {game.name}")
+                        successful_translations += 1
+                        logger.info(f"✅ [{i}/{total_games}] Successfully translated: {game.name}")
                     else:
-                        logger.warning(f"Failed to translate description for game: {game.name}")
+                        failed_translations += 1
+                        logger.warning(f"⚠️  [{i}/{total_games}] Failed to translate: {game.name}")
 
                     # Небольшая задержка между запросами, чтобы не превысить лимиты API
                     await asyncio.sleep(0.5)
 
+                    # Логируем прогресс каждые 10 игр
+                    if i % 10 == 0:
+                        logger.info(f"📊 Progress: {i}/{total_games} games processed "
+                                  f"({successful_translations} successful, {failed_translations} failed)")
+
                 except Exception as e:
-                    logger.error(f"Error translating description for game {game.name}: {e}")
+                    failed_translations += 1
+                    logger.error(f"❌ [{i}/{total_games}] Error translating game {game.name} (ID: {game.id}): {e}")
                     continue
 
             # Сохраняем изменения
             db.commit()
-            logger.info(f"Background translation completed for {len(games_to_translate)} games")
+
+            logger.info("💾 Database changes committed")
+            logger.info("🎉 Background translation completed!"            logger.info(f"📈 Final stats: {total_games} total, "
+                      f"{successful_translations} successful, {failed_translations} failed")
 
         except Exception as e:
-            logger.error(f"Error in background translation task: {e}", exc_info=True)
-            db.rollback()
+            logger.error("💥 Critical error in background translation task", exc_info=True)
+            try:
+                db.rollback()
+                logger.info("🔄 Database transaction rolled back")
+            except Exception as rollback_error:
+                logger.error(f"❌ Failed to rollback transaction: {rollback_error}")
 
 
 # Глобальный экземпляр сервиса

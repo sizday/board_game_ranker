@@ -83,7 +83,13 @@ def save_game_from_bgg_data(
     # description_ru будет заполнен позже через фоновый перевод
 
     session.flush()
-    logger.info(f"Saved/updated game from BGG data: {name} (bgg_id: {game_id})")
+    action = "updated" if game.bgg_id == game_id else "created"
+    logger.info(f"💾 Game {action}: '{name}' (DB ID: {game.id}, BGG ID: {game_id})")
+
+    if game.description:
+        logger.debug(f"📝 Game '{name}' has description ({len(game.description)} chars)")
+    else:
+        logger.debug(f"📝 Game '{name}' has no description")
 
     return game
 

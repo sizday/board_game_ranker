@@ -45,6 +45,7 @@ async def import_table(
         logger.info(f"Successfully imported {len(request.rows)} games")
 
         # Запускаем фоновый перевод описаний для игр, у которых его нет
+        logger.info("🎯 Scheduling background translation task for imported games")
         background_tasks.add_task(translate_game_descriptions_background, db)
 
         return ImportTableResponse(

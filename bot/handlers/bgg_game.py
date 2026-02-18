@@ -127,15 +127,17 @@ async def cmd_game(message: Message, api_base_url: str, default_language: str) -
         description = game.get("description")
 
         # Выбираем описание в зависимости от языка
+        original_lang = "en"
         if default_language == "ru":
             description_ru = game.get("description_ru")
             if description_ru:
                 description = description_ru
-                logger.debug(f"Using Russian description for game: {name}")
+                original_lang = "ru"
+                logger.debug(f"🌍 Using Russian description for game: {name}")
             else:
-                logger.debug(f"No Russian description available for game: {name}, using English")
+                logger.debug(f"🌍 No Russian description available for game: {name}, using English")
 
-        logger.info(f"Displaying game from {search_source}: {name} (rank: {rank})")
+        logger.info(f"📖 Displaying game '{name}' from {search_source} (rank: #{rank}, lang: {original_lang})")
 
         lines = [f"<b>{name}</b>"]
         if year:

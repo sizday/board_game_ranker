@@ -138,15 +138,24 @@ async def save_game_from_bgg(
     :param db: Сессия базы данных
     :return: Сохраненная игра
     """
-    logger.info(f"Saving game from BGG data: {bgg_data.get('name')}")
+    game_name = bgg_data.get('name', 'Unknown')
+    game_id = bgg_data.get('id')
+    logger.info(f"💾 Saving game from BGG data: '{game_name}' (BGG ID: {game_id})")
 
     try:
         game = save_game_from_bgg_data(db, bgg_data)
         db.commit()
 
+        logger.info(f"✅ Game saved successfully: '{game_name}' (DB ID: {game.id})")
+
         # Запускаем фоновый перевод описания, если оно есть
         if game.description and not game.description_ru:
+            logger.info(f"🎯 Scheduling translation for game: '{game_name}' (has description, no Russian translation)")
             background_tasks.add_task(translate_game_descriptions_background, db)
+        elif not game.description:
+            logger.debug(f"ℹ️  Game '{game_name}' has no description to translate")
+        else:
+            logger.debug(f"ℹ️  Game '{game_name}' already has Russian translation")
 
         return GameDetails(
             id=game.id,
@@ -183,5 +192,5 @@ async def save_game_from_bgg(
 
     except Exception as exc:
         db.rollback()
-        logger.error(f"Error saving game from BGG data: {exc}", exc_info=True)
+        logger.error(f"❌ Error saving game '{game_name}' from BGG data: {exc}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(exc))
