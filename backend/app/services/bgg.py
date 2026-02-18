@@ -1,9 +1,12 @@
+import logging
 import time
 from typing import List, Dict, Any, Optional
 
 import xml.etree.ElementTree as ET
 
 from app.config import config
+
+logger = logging.getLogger(__name__)
 
 try:
     import requests
@@ -27,10 +30,12 @@ def _resolve_token(explicit_token: Optional[str] = None) -> str:
     """
     token = explicit_token or config.BGG_BEARER_TOKEN
     if not token:
+        logger.error("BGG_BEARER_TOKEN не задан в конфигурации")
         raise ValueError(
             "Не задан Bearer‑токен BGG. "
             "Передайте его параметром token=... или установите переменную окружения BGG_BEARER_TOKEN."
         )
+    logger.debug("BGG токен успешно получен")
     return token
 
 
@@ -67,26 +72,45 @@ def search_boardgame(
         "exact": 1 if exact else 0,
     }
 
+    logger.info(f"Поиск игры на BGG: query='{name}', exact={exact}")
+    logger.debug(f"BGG search URL: {BGG_SEARCH_URL}, params={params}")
+
     last_error = None
     for attempt in range(1, retries + 1):
         try:
+            logger.debug(f"Попытка {attempt}/{retries} запроса к BGG search API")
             resp = requests.get(
                 BGG_SEARCH_URL,
                 params=params,
                 headers=headers,
                 timeout=timeout,
             )
+            logger.debug(f"BGG search ответ: status_code={resp.status_code}, content_length={len(resp.text)}")
             resp.raise_for_status()
 
             # BGG иногда отвечает пустым телом при 200 OK — проверим это.
             if not resp.text.strip():
+                logger.warning(f"BGG вернул пустой ответ для запроса '{name}'")
                 raise RuntimeError("Пустой ответ от BGG")
 
-            return _parse_search_response(resp.text)
-        except Exception as exc:  # noqa: BLE001
+            results = _parse_search_response(resp.text)
+            logger.info(f"BGG search успешен: найдено {len(results)} игр для запроса '{name}'")
+            if results:
+                logger.debug(f"Найденные игры: {[r.get('name') for r in results[:3]]}")
+            return results
+        except requests.exceptions.RequestException as exc:
             last_error = exc
+            logger.warning(f"Ошибка HTTP запроса к BGG (попытка {attempt}/{retries}): {exc}")
             if attempt < retries:
                 # Небольшая пауза перед повтором
+                time.sleep(1.5)
+            else:
+                logger.error(f"Не удалось выполнить запрос к BGG search API после {retries} попыток: {exc}")
+                raise RuntimeError(f"Ошибка обращения к BGG API после {retries} попыток: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            logger.error(f"Неожиданная ошибка при поиске игры '{name}' (попытка {attempt}/{retries}): {exc}", exc_info=True)
+            if attempt < retries:
                 time.sleep(1.5)
             else:
                 raise RuntimeError(f"Ошибка обращения к BGG API после {retries} попыток: {exc}") from exc
@@ -121,23 +145,42 @@ def get_boardgame_details(
         "stats": 1,
     }
 
+    logger.info(f"Запрос деталей игры с BGG: game_id={game_id}")
+    logger.debug(f"BGG thing URL: {BGG_THING_URL}, params={params}")
+
     last_error = None
     for attempt in range(1, retries + 1):
         try:
+            logger.debug(f"Попытка {attempt}/{retries} запроса к BGG thing API для game_id={game_id}")
             resp = requests.get(
                 BGG_THING_URL,
                 params=params,
                 headers=headers,
                 timeout=timeout,
             )
+            logger.debug(f"BGG thing ответ: status_code={resp.status_code}, content_length={len(resp.text)}")
             resp.raise_for_status()
 
             if not resp.text.strip():
+                logger.warning(f"BGG вернул пустой ответ для game_id={game_id}")
                 raise RuntimeError("Пустой ответ от BGG при запросе статистики игры")
 
-            return _parse_thing_response(resp.text)
+            result = _parse_thing_response(resp.text)
+            logger.info(f"BGG thing успешен для game_id={game_id}: name='{result.get('name')}', rank={result.get('rank')}")
+            return result
+        except requests.exceptions.RequestException as exc:
+            last_error = exc
+            logger.warning(f"Ошибка HTTP запроса к BGG thing (попытка {attempt}/{retries}) для game_id={game_id}: {exc}")
+            if attempt < retries:
+                time.sleep(1.5)
+            else:
+                logger.error(f"Не удалось получить детали игры game_id={game_id} после {retries} попыток: {exc}")
+                raise RuntimeError(
+                    f"Ошибка обращения к BGG API (thing) после {retries} попыток: {exc}"
+                ) from exc
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+            logger.error(f"Неожиданная ошибка при получении деталей игры game_id={game_id} (попытка {attempt}/{retries}): {exc}", exc_info=True)
             if attempt < retries:
                 time.sleep(1.5)
             else:
@@ -150,36 +193,56 @@ def get_boardgame_details(
 
 def _parse_search_response(xml_text: str) -> List[Dict[str, Any]]:
     """Парсит XML‑ответ поиска BGG в удобную структуру."""
-    root = ET.fromstring(xml_text)
-    results: List[Dict[str, Any]] = []
+    try:
+        root = ET.fromstring(xml_text)
+        items = root.findall("item")
+        logger.debug(f"Парсинг BGG search ответа: найдено {len(items)} элементов item")
+        
+        results: List[Dict[str, Any]] = []
 
-    for item in root.findall("item"):
-        game_id = item.attrib.get("id")
+        for item in items:
+            game_id = item.attrib.get("id")
 
-        # Внутри item есть дочерний элемент <name value="...">
-        name_el = item.find("name")
-        name = name_el.attrib.get("value") if name_el is not None else None
+            # Внутри item есть дочерний элемент <name value="...">
+            name_el = item.find("name")
+            name = name_el.attrib.get("value") if name_el is not None else None
 
-        year_el = item.find("yearpublished")
-        year = year_el.attrib.get("value") if year_el is not None else None
+            year_el = item.find("yearpublished")
+            year = year_el.attrib.get("value") if year_el is not None else None
 
-        results.append(
-            {
-                "id": int(game_id) if game_id is not None else None,
-                "name": name,
-                "yearpublished": int(year) if year is not None and year.isdigit() else None,
-            }
-        )
+            if not game_id:
+                logger.warning(f"Найден item без id в ответе BGG search")
+                continue
 
-    return results
+            results.append(
+                {
+                    "id": int(game_id) if game_id is not None else None,
+                    "name": name,
+                    "yearpublished": int(year) if year is not None and year.isdigit() else None,
+                }
+            )
+        
+        logger.debug(f"Успешно распарсено {len(results)} игр из BGG search ответа")
+        return results
+    except ET.ParseError as e:
+        logger.error(f"Ошибка парсинга XML ответа BGG search: {e}")
+        logger.debug(f"XML содержимое (первые 500 символов): {xml_text[:500]}")
+        raise RuntimeError(f"Не удалось распарсить ответ BGG: {e}") from e
 
 
 def _parse_thing_response(xml_text: str) -> Dict[str, Any]:
     """Парсит XML‑ответ /thing?stats=1 в словарь с рейтингом и статистикой."""
-    root = ET.fromstring(xml_text)
-    item = root.find("item")
-    if item is None:
-        raise RuntimeError("Ответ BGG не содержит элемента item")
+    try:
+        root = ET.fromstring(xml_text)
+        item = root.find("item")
+        if item is None:
+            logger.error("Ответ BGG thing не содержит элемента item")
+            logger.debug(f"XML содержимое (первые 500 символов): {xml_text[:500]}")
+            raise RuntimeError("Ответ BGG не содержит элемента item")
+    except ET.ParseError as e:
+        logger.error(f"Ошибка парсинга XML ответа BGG thing: {e}")
+        logger.debug(f"XML содержимое (первые 500 символов): {xml_text[:500]}")
+        raise RuntimeError(f"Не удалось распарсить ответ BGG: {e}") from e
 
     game_id = item.attrib.get("id")
     name_el = item.find("name")

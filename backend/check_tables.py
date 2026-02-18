@@ -1,11 +1,16 @@
 """
 Скрипт для проверки наличия таблиц в БД и их автоматического восстановления при необходимости.
 """
+import logging
 import sys
 from sqlalchemy import text, inspect
 
 from app.infrastructure.db import engine, Base
 from app.infrastructure import models  # noqa: F401 - импортируем для регистрации моделей
+from app.utils.logging import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 def check_and_restore_tables() -> bool:
@@ -17,24 +22,25 @@ def check_and_restore_tables() -> bool:
     """
     required_tables = ["games", "ratings", "ranking_sessions"]
     
-    print("Checking database tables...")
+    logger.info("Checking database tables...")
     
     try:
         inspector = inspect(engine)
         existing_tables = set(inspector.get_table_names())
+        logger.debug(f"Existing tables: {existing_tables}")
     except Exception as e:
-        print(f"⚠ Warning: Could not inspect database: {e}")
-        print("Attempting to restore tables anyway...")
+        logger.warning(f"Could not inspect database: {e}")
+        logger.info("Attempting to restore tables anyway...")
         existing_tables = set()
     
     missing_tables = [tbl for tbl in required_tables if tbl not in existing_tables]
     
     if not missing_tables:
-        print("✓ All required tables exist.")
+        logger.info("✓ All required tables exist.")
         return False
     
-    print(f"⚠ Missing tables: {', '.join(missing_tables)}")
-    print("Restoring tables...")
+    logger.warning(f"⚠ Missing tables: {', '.join(missing_tables)}")
+    logger.info("Restoring tables...")
     
     try:
         # Восстанавливаем все таблицы
@@ -47,10 +53,10 @@ def check_and_restore_tables() -> bool:
         still_missing = [tbl for tbl in required_tables if tbl not in existing_tables_after]
         
         if still_missing:
-            print(f"✗ ERROR: Failed to create tables: {', '.join(still_missing)}")
+            logger.error(f"✗ ERROR: Failed to create tables: {', '.join(still_missing)}")
             return False
         
-        print("✓ Tables restored successfully!")
+        logger.info("✓ Tables restored successfully!")
         
         # Помечаем миграции Alembic как применённые, чтобы избежать конфликтов
         if "alembic_version" not in existing_tables_after:
@@ -63,16 +69,16 @@ def check_and_restore_tables() -> bool:
                     timeout=10
                 )
                 if result.returncode == 0:
-                    print("✓ Alembic migrations stamped as applied.")
+                    logger.info("✓ Alembic migrations stamped as applied.")
                 else:
-                    print(f"⚠ Warning: Could not stamp Alembic migrations: {result.stderr}")
+                    logger.warning(f"Could not stamp Alembic migrations: {result.stderr}")
             except Exception as e:
-                print(f"⚠ Warning: Could not stamp Alembic migrations: {e}")
+                logger.warning(f"Could not stamp Alembic migrations: {e}")
         
         return True
         
     except Exception as e:
-        print(f"✗ ERROR: Failed to restore tables: {e}")
+        logger.error(f"✗ ERROR: Failed to restore tables: {e}", exc_info=True)
         raise
 
 
@@ -81,6 +87,7 @@ if __name__ == "__main__":
         restored = check_and_restore_tables()
         sys.exit(0 if restored else 0)  # Всё ок в любом случае
     except Exception as e:
+        logger.error(f"Table check failed: {e}", exc_info=True)
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 

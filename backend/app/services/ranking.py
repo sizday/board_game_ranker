@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Dict, List, Optional, Sequence
 
 from sqlalchemy.orm import Session
@@ -7,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.domain.models import FirstTier, Game, SecondTier
 from app.domain import services as domain_services
 from app.infrastructure.models import GameModel, RatingModel, RankingSessionModel
+
+logger = logging.getLogger(__name__)
 
 
 class RankingService:
@@ -24,6 +27,7 @@ class RankingService:
     # ---------- Вспомогательные методы ----------
 
     def _load_games_for_user(self, user_name: str) -> List[Game]:
+        logger.debug(f"Loading games for user: {user_name}")
         games: List[Game] = []
 
         q = (
@@ -43,11 +47,14 @@ class RankingService:
                     genre=gm.genre,
                 )
             )
+        logger.info(f"Loaded {len(games)} games for user {user_name}")
         return games
 
     def _get_session(self, session_id: int) -> RankingSessionModel:
+        logger.debug(f"Getting ranking session: {session_id}")
         session = self.db.get(RankingSessionModel, session_id)
         if session is None:
+            logger.warning(f"Ranking session {session_id} not found")
             raise ValueError(f"Ranking session {session_id} not found")
         return session
 
@@ -72,8 +79,10 @@ class RankingService:
         """
         Создаёт новую сессию ранжирования для пользователя и возвращает первую игру.
         """
+        logger.info(f"Starting ranking session for user: {user_name}")
         games = self._load_games_for_user(user_name)
         if not games:
+            logger.warning(f"No games found for user: {user_name}")
             raise ValueError("Для пользователя нет ни одной сыгранной игры.")
 
         games_ids = [g.id for g in games]
@@ -94,6 +103,7 @@ class RankingService:
         self.db.flush()
 
         first_game = games[0]
+        logger.info(f"Ranking session created: session_id={session.id}, total_games={len(games)}")
         return {
             "session_id": session.id,
             "game": {"id": first_game.id, "name": first_game.name},
@@ -123,8 +133,10 @@ class RankingService:
         Сохраняет ответ пользователя на первом проходе и возвращает следующую игру
         либо информацию о переходе ко второму этапу.
         """
+        logger.debug(f"Processing first tier answer: session_id={session_id}, game_id={game_id}, tier={tier.value}")
         session = self._get_session(session_id)
         if session.state not in ("first_tier", "second_tier"):
+            logger.warning(f"Invalid session state for first tier: session_id={session_id}, state={session.state}")
             raise ValueError("Сессия уже прошла этап первого ранжирования.")
 
         games = self._games_by_id(session.games)
@@ -136,6 +148,7 @@ class RankingService:
 
         next_game = self._next_unrated_game_first(session, ordered_games)
         if next_game is not None:
+            logger.debug(f"First tier: next game available: session_id={session_id}, answered={len(tiers)}/{len(ordered_games)}")
             return {
                 "phase": "first_tier",
                 "next_game": {"id": next_game.id, "name": next_game.name},
@@ -144,6 +157,7 @@ class RankingService:
             }
 
         # Первый проход завершён — выбираем пул кандидатов
+        logger.info(f"First tier completed: session_id={session_id}, selecting candidates (top_n={top_n})")
         first_tiers_enum: Dict[int, FirstTier] = {
             int(g_id): FirstTier(value)
             for g_id, value in (session.first_tiers or {}).items()
@@ -157,6 +171,7 @@ class RankingService:
         session.current_index_second = 0
 
         if not candidate_ids:
+            logger.warning(f"No candidates selected for session: session_id={session_id}")
             return {
                 "phase": "completed",
                 "message": "Не удалось набрать кандидатов для топа.",
@@ -164,6 +179,7 @@ class RankingService:
 
         candidate_games = [games[g_id] for g_id in candidate_ids if g_id in games]
         first_candidate = candidate_games[0]
+        logger.info(f"Candidates selected: session_id={session_id}, candidates={len(candidate_games)}")
 
         return {
             "phase": "second_tier",
@@ -194,11 +210,14 @@ class RankingService:
         Сохраняет ответ пользователя на втором проходе и,
         если все игры оценены, формирует финальный топ.
         """
+        logger.debug(f"Processing second tier answer: session_id={session_id}, game_id={game_id}, tier={tier.value}")
         session = self._get_session(session_id)
         if session.state != "second_tier":
+            logger.warning(f"Invalid session state for second tier: session_id={session_id}, state={session.state}")
             raise ValueError("Сессия не находится на этапе второго ранжирования.")
 
         if not session.candidate_ids:
+            logger.warning(f"No candidate_ids for session: session_id={session_id}")
             raise ValueError("Для сессии нет списка кандидатов.")
 
         games = self._games_by_id(session.candidate_ids)
@@ -210,6 +229,7 @@ class RankingService:
 
         next_game = self._next_unrated_game_second(session, candidate_games)
         if next_game is not None:
+            logger.debug(f"Second tier: next game available: session_id={session_id}, answered={len(tiers)}/{len(candidate_games)}")
             return {
                 "phase": "second_tier",
                 "next_game": {"id": next_game.id, "name": next_game.name},
@@ -218,6 +238,7 @@ class RankingService:
             }
 
         # Второй проход завершён — формируем финальный топ
+        logger.info(f"Second tier completed: session_id={session_id}, building final top (top_n={top_n})")
         second_tiers_enum: Dict[int, SecondTier] = {
             int(g_id): SecondTier(value)
             for g_id, value in (session.second_tiers or {}).items()
@@ -232,6 +253,7 @@ class RankingService:
         session.state = "final"
 
         ranked_games = domain_services.build_ranked_games(games, final_ids)
+        logger.info(f"Final ranking built: session_id={session_id}, ranked_games={len(ranked_games)}")
 
         return {
             "phase": "final",

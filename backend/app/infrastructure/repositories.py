@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any
 
@@ -7,6 +8,8 @@ from app.config import config
 from app.domain.models import GameGenre
 from app.services.bgg import get_boardgame_details, search_boardgame
 from .models import GameModel, RatingModel
+
+logger = logging.getLogger(__name__)
 
 
 GAME_UPDATE_DELTA = timedelta(days=config.GAME_UPDATE_DAYS)
@@ -36,11 +39,16 @@ def _should_update_game(game: GameModel, is_forced_update: bool) -> bool:
       (updated_at) или updated_at отсутствует.
     """
     if is_forced_update:
+        logger.debug(f"Forced update requested for game: {game.name}")
         return True
     if not game.updated_at:
+        logger.debug(f"Game {game.name} has no updated_at, update needed")
         return True
     now = datetime.now(timezone.utc)
-    return now - game.updated_at > GAME_UPDATE_DELTA
+    should_update = now - game.updated_at > GAME_UPDATE_DELTA
+    if should_update:
+        logger.debug(f"Game {game.name} data is outdated (last update: {game.updated_at})")
+    return should_update
 
 
 def _fetch_bgg_details_for_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -53,25 +61,34 @@ def _fetch_bgg_details_for_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
     2. Иначе ищем по имени через search_boardgame (exact=False), берем первый результат.
     """
     explicit_bgg_id = row.get("bgg_id")
+    name = row.get("name")
+    
     if explicit_bgg_id:
+        logger.debug(f"Fetching BGG details by explicit ID: {explicit_bgg_id} for game: {name}")
         try:
             return get_boardgame_details(int(explicit_bgg_id))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fetch BGG details by ID {explicit_bgg_id}: {e}")
             return None
 
-    name = row.get("name")
     if not name:
+        logger.debug("No name provided in row, skipping BGG fetch")
         return None
 
+    logger.debug(f"Searching BGG for game: {name}")
     try:
         found = search_boardgame(name, exact=False)
         if not found:
+            logger.warning(f"No BGG results found for game: {name}")
             return None
         first = found[0]
         if not first.get("id"):
+            logger.warning(f"BGG search result has no ID for game: {name}")
             return None
+        logger.debug(f"Found BGG game ID {first['id']} for {name}, fetching details")
         return get_boardgame_details(first["id"])
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error fetching BGG details for game {name}: {e}", exc_info=True)
         return None
 
 
@@ -103,12 +120,21 @@ def replace_all_from_table(
         ...
     ]
     """
+    logger.info(f"Starting import from table: {len(rows)} rows, forced_update={is_forced_update}")
+    
     # Рейтинги пересоздаем полностью, чтобы структура оставалась консистентной
-    session.query(RatingModel).delete()
+    deleted_ratings = session.query(RatingModel).delete()
+    logger.info(f"Deleted {deleted_ratings} existing ratings")
 
-    for row in rows:
+    games_created = 0
+    games_updated = 0
+    games_bgg_updated = 0
+    ratings_added = 0
+
+    for idx, row in enumerate(rows, 1):
         name = row.get("name")
         if not name:
+            logger.debug(f"Skipping row {idx}: no name")
             continue
 
         # Ищем игру по имени (можно доработать до поиска по bgg_id при необходимости)
@@ -122,6 +148,11 @@ def replace_all_from_table(
             game = GameModel(name=name)
             session.add(game)
             session.flush()
+            games_created += 1
+            logger.debug(f"Created new game: {name}")
+        else:
+            games_updated += 1
+            logger.debug(f"Updating existing game: {name}")
 
         # Всегда обновляем "локальные" поля из таблицы
         game.niza_games_rank = row.get("niza_games_rank")
@@ -139,6 +170,8 @@ def replace_all_from_table(
                 game.image = details.get("image")
                 game.thumbnail = details.get("thumbnail")
                 game.description = details.get("description")
+                games_bgg_updated += 1
+                logger.debug(f"Updated BGG data for game: {name}")
 
         session.flush()
 
@@ -151,4 +184,10 @@ def replace_all_from_table(
                 rank=int(rank),
             )
             session.add(rating)
+            ratings_added += 1
+
+    logger.info(
+        f"Import completed: created={games_created}, updated={games_updated}, "
+        f"bgg_updated={games_bgg_updated}, ratings_added={ratings_added}"
+    )
 

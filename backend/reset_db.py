@@ -5,11 +5,16 @@
     python reset_db.py          # Пересоздать все таблицы
     python reset_db.py --force  # Принудительно удалить и пересоздать
 """
+import logging
 import sys
 from sqlalchemy import text
 
 from app.infrastructure.db import engine, Base
 from app.infrastructure import models  # noqa: F401 - импортируем для регистрации моделей
+from app.utils.logging import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 def reset_database(force: bool = False) -> None:
@@ -18,11 +23,11 @@ def reset_database(force: bool = False) -> None:
     
     :param force: Если True, сначала удаляет все таблицы, затем создаёт заново.
     """
-    print("=== Database Reset ===")
+    logger.info("=== Database Reset ===")
     
     with engine.connect() as conn:
         if force:
-            print("Dropping all tables...")
+            logger.info("Dropping all tables...")
             # Удаляем все таблицы в правильном порядке (с учётом foreign keys)
             conn.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
             conn.execute(text("DROP TABLE IF EXISTS ratings CASCADE"))
@@ -31,12 +36,12 @@ def reset_database(force: bool = False) -> None:
             # Удаляем типы ENUM, если они есть
             conn.execute(text("DROP TYPE IF EXISTS gamegenre CASCADE"))
             conn.commit()
-            print("All tables dropped.")
+            logger.info("All tables dropped.")
         
-        print("Creating all tables...")
+        logger.info("Creating all tables...")
         # Создаём все таблицы заново
         Base.metadata.create_all(bind=engine, checkfirst=True)
-        print("Tables created successfully!")
+        logger.info("Tables created successfully!")
         
         # Проверяем, какие таблицы созданы
         result = conn.execute(text("""
@@ -46,10 +51,10 @@ def reset_database(force: bool = False) -> None:
             ORDER BY table_name
         """))
         tables = [row[0] for row in result]
-        print(f"\nCreated tables: {', '.join(tables)}")
+        logger.info(f"Created tables: {', '.join(tables)}")
         
         # Применяем миграции Alembic (если нужно)
-        print("\nApplying Alembic migrations...")
+        logger.info("Applying Alembic migrations...")
         import subprocess
         result = subprocess.run(
             ["alembic", "-c", "alembic.ini", "stamp", "head"],
@@ -57,11 +62,11 @@ def reset_database(force: bool = False) -> None:
             text=True
         )
         if result.returncode == 0:
-            print("Alembic migrations stamped as applied.")
+            logger.info("Alembic migrations stamped as applied.")
         else:
-            print(f"Warning: Could not stamp Alembic migrations: {result.stderr}")
+            logger.warning(f"Could not stamp Alembic migrations: {result.stderr}")
     
-    print("\n=== Database reset complete! ===")
+    logger.info("=== Database reset complete! ===")
 
 
 if __name__ == "__main__":
@@ -69,6 +74,7 @@ if __name__ == "__main__":
     try:
         reset_database(force=force)
     except Exception as e:
+        logger.error(f"Database reset failed: {e}", exc_info=True)
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 

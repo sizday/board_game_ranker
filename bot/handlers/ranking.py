@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import httpx
 from aiogram import Router
 from aiogram.filters import Command
@@ -7,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -114,38 +116,52 @@ async def _send_first_tier_question(
     api_base_url: str,
     user_name: str,
 ) -> None:
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{api_base_url}/api/ranking/start",
-            json={"user_name": user_name},
-            timeout=30.0,
+    logger.info(f"Starting ranking for user: {user_name}")
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{api_base_url}/api/ranking/start",
+                json={"user_name": user_name},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+
+        data = resp.json()
+        session_id = data["session_id"]
+        game = data["game"]
+        logger.info(f"Ranking session started: session_id={session_id}, first_game={game['name']}")
+
+        text = (
+            f"Начинаем формировать твой рейтинг!\n\n"
+            f"Игра: <b>{game['name']}</b>\n"
+            f"Отметь, насколько она тебе понравилась."
         )
-        resp.raise_for_status()
-
-    data = resp.json()
-    session_id = data["session_id"]
-    game = data["game"]
-
-    text = (
-        f"Начинаем формировать твой рейтинг!\n\n"
-        f"Игра: <b>{game['name']}</b>\n"
-        f"Отметь, насколько она тебе понравилась."
-    )
-    await message.answer(
-        text,
-        reply_markup=_first_tier_keyboard(session_id=session_id, game_id=game["id"]),
-    )
+        await message.answer(
+            text,
+            reply_markup=_first_tier_keyboard(session_id=session_id, game_id=game["id"]),
+        )
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error starting ranking for {user_name}: {e.response.status_code}")
+        raise
+    except Exception as e:
+        logger.error(f"Error starting ranking for {user_name}: {e}", exc_info=True)
+        raise
 
 
 @router.message(Command("start_ranking"))
 async def cmd_start_ranking(message: Message, state: FSMContext):
     api_base_url = message.bot["api_base_url"]
     user_name = message.from_user.full_name or str(message.from_user.id)
-
+    user_id = message.from_user.id
+    
+    logger.info(f"User {user_name} (ID: {user_id}) requested ranking start")
+    
     try:
         await _send_first_tier_question(message, api_base_url, user_name)
         await state.set_state(RankingStates.first_tier)
+        logger.debug(f"Ranking state set to first_tier for user {user_name}")
     except Exception as exc:  # noqa: BLE001
+        logger.error(f"Failed to start ranking for user {user_name}: {exc}", exc_info=True)
         await message.answer(f"Не удалось начать ранжирование: {exc}")
 
 
@@ -155,17 +171,21 @@ async def handle_first_tier_callback(callback: CallbackQuery, state: FSMContext,
     Обрабатывает callback-данные для первого этапа ранжирования.
     """
     data = callback.data or ""
+    user_id = callback.from_user.id
 
     try:
         kind, session_id_str, game_id_str, tier = data.split(":", 3)
         session_id = int(session_id_str)
         game_id = int(game_id_str)
-    except Exception:  # noqa: BLE001
+        logger.debug(f"First tier callback: user_id={user_id}, session_id={session_id}, game_id={game_id}, tier={tier}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Invalid callback data format: {data}, error: {e}")
         await callback.answer("Некорректные данные.", show_alert=True)
         return
 
     # Проверяем, что это callback первого этапа
     if kind != "first":
+        logger.warning(f"Invalid callback kind for first tier: {kind}")
         await callback.answer("Некорректный тип действия для текущего этапа.", show_alert=True)
         return
 
@@ -185,8 +205,13 @@ async def handle_first_tier_callback(callback: CallbackQuery, state: FSMContext,
             resp.raise_for_status()
 
         payload = resp.json()
+        logger.debug(f"First tier answer processed: session_id={session_id}, phase={payload.get('phase')}")
         await _handle_phase_transition(callback, state, payload, session_id)
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error processing first tier answer: {e.response.status_code}")
+        await callback.message.answer(f"Ошибка при обновлении рейтинга: {e.response.status_code}")
     except Exception as exc:  # noqa: BLE001
+        logger.error(f"Error processing first tier callback: {exc}", exc_info=True)
         await callback.message.answer(f"Ошибка при обновлении рейтинга: {exc}")
 
 
@@ -196,17 +221,21 @@ async def handle_second_tier_callback(callback: CallbackQuery, state: FSMContext
     Обрабатывает callback-данные для второго этапа ранжирования.
     """
     data = callback.data or ""
+    user_id = callback.from_user.id
 
     try:
         kind, session_id_str, game_id_str, tier = data.split(":", 3)
         session_id = int(session_id_str)
         game_id = int(game_id_str)
-    except Exception:  # noqa: BLE001
+        logger.debug(f"Second tier callback: user_id={user_id}, session_id={session_id}, game_id={game_id}, tier={tier}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Invalid callback data format: {data}, error: {e}")
         await callback.answer("Некорректные данные.", show_alert=True)
         return
 
     # Проверяем, что это callback второго этапа
     if kind != "second":
+        logger.warning(f"Invalid callback kind for second tier: {kind}")
         await callback.answer("Некорректный тип действия для текущего этапа.", show_alert=True)
         return
 
@@ -226,8 +255,13 @@ async def handle_second_tier_callback(callback: CallbackQuery, state: FSMContext
             resp.raise_for_status()
 
         payload = resp.json()
+        logger.debug(f"Second tier answer processed: session_id={session_id}, phase={payload.get('phase')}")
         await _handle_phase_transition(callback, state, payload, session_id)
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error processing second tier answer: {e.response.status_code}")
+        await callback.message.answer(f"Ошибка при обновлении рейтинга: {e.response.status_code}")
     except Exception as exc:  # noqa: BLE001
+        logger.error(f"Error processing second tier callback: {exc}", exc_info=True)
         await callback.message.answer(f"Ошибка при обновлении рейтинга: {exc}")
 
 

@@ -1,3 +1,4 @@
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,6 +9,8 @@ from app.domain.models import FirstTier, Game, RankingRequest, SecondTier
 from app.domain.services import rank_games
 from app.infrastructure.db import get_db
 from app.services.ranking import RankingService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -51,10 +54,12 @@ class RankingAnswerResponse(BaseModel):
 @router.post("/rank", response_model=RankGamesResponse)
 async def rank_games_endpoint(request: RankGamesRequest):
     """Rank games based on provided list."""
+    logger.info(f"Ranking request received: {len(request.games)} games, top_n={request.top_n}")
     games = [Game(id=item.id, name=item.name) for item in request.games]
     ranking_request = RankingRequest(games=games, top_n=request.top_n)
 
     result = rank_games(ranking_request)
+    logger.info(f"Ranking completed: {len(result.ranked_games)} games ranked")
 
     return RankGamesResponse(
         ranked_games=[
@@ -67,19 +72,23 @@ async def rank_games_endpoint(request: RankGamesRequest):
 @router.post("/ranking/start", response_model=RankingStartResponse)
 async def ranking_start(request: RankingStartRequest, db: Session = Depends(get_db)):
     """Start a ranking session for a user."""
+    logger.info(f"Starting ranking session for user: {request.user_name}")
     if not request.user_name:
+        logger.warning("Ranking start request without user_name")
         raise HTTPException(status_code=400, detail="user_name is required")
 
     service = RankingService(db)
     try:
         data = service.start_session(user_name=request.user_name)
         db.commit()
+        logger.info(f"Ranking session started: session_id={data['session_id']}, total_games={data.get('total_games', 0)}")
         return RankingStartResponse(
             session_id=data["session_id"],
             game=GameItem(id=data["game"]["id"], name=data["game"]["name"]),
         )
     except Exception as exc:  # noqa: BLE001
         db.rollback()
+        logger.error(f"Error starting ranking session for user {request.user_name}: {exc}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -88,7 +97,9 @@ async def ranking_answer_first(
     request: RankingAnswerRequest, db: Session = Depends(get_db)
 ):
     """User answer for first tier ranking (bad/good/excellent)."""
+    logger.debug(f"First tier answer: session_id={request.session_id}, game_id={request.game_id}, tier={request.tier}")
     if request.session_id is None or request.game_id is None or request.tier is None:
+        logger.warning("First tier answer request with missing required fields")
         raise HTTPException(
             status_code=400, detail="session_id, game_id и tier обязательны"
         )
@@ -96,6 +107,7 @@ async def ranking_answer_first(
     try:
         tier = FirstTier(request.tier)
     except ValueError:
+        logger.warning(f"Invalid tier value: {request.tier}")
         raise HTTPException(
             status_code=400, detail=f"Некорректное значение tier: {request.tier}"
         )
@@ -108,6 +120,7 @@ async def ranking_answer_first(
             tier=tier,
         )
         db.commit()
+        logger.info(f"First tier answer processed: session_id={request.session_id}, phase={data.get('phase')}, answered={data.get('answered', 0)}/{data.get('total', 0)}")
 
         # Build response
         response_data: dict = {"phase": data.get("phase")}
@@ -130,6 +143,7 @@ async def ranking_answer_first(
         return RankingAnswerResponse(**response_data)
     except Exception as exc:  # noqa: BLE001
         db.rollback()
+        logger.error(f"Error processing first tier answer: session_id={request.session_id}, game_id={request.game_id}: {exc}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -138,7 +152,9 @@ async def ranking_answer_second(
     request: RankingAnswerRequest, db: Session = Depends(get_db)
 ):
     """User answer for second tier ranking (super_cool/cool/excellent)."""
+    logger.debug(f"Second tier answer: session_id={request.session_id}, game_id={request.game_id}, tier={request.tier}")
     if request.session_id is None or request.game_id is None or request.tier is None:
+        logger.warning("Second tier answer request with missing required fields")
         raise HTTPException(
             status_code=400, detail="session_id, game_id и tier обязательны"
         )
@@ -146,6 +162,7 @@ async def ranking_answer_second(
     try:
         tier = SecondTier(request.tier)
     except ValueError:
+        logger.warning(f"Invalid tier value: {request.tier}")
         raise HTTPException(
             status_code=400, detail=f"Некорректное значение tier: {request.tier}"
         )
@@ -158,6 +175,7 @@ async def ranking_answer_second(
             tier=tier,
         )
         db.commit()
+        logger.info(f"Second tier answer processed: session_id={request.session_id}, phase={data.get('phase')}, answered={data.get('answered', 0)}/{data.get('total', 0)}")
 
         # Build response
         response_data: dict = {"phase": data.get("phase")}
@@ -180,6 +198,7 @@ async def ranking_answer_second(
         return RankingAnswerResponse(**response_data)
     except Exception as exc:  # noqa: BLE001
         db.rollback()
+        logger.error(f"Error processing second tier answer: session_id={request.session_id}, game_id={request.game_id}: {exc}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(exc))
 
 

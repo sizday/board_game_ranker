@@ -1,3 +1,4 @@
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.db import get_db
 from app.infrastructure.repositories import replace_all_from_table
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -26,6 +29,7 @@ class ImportTableResponse(BaseModel):
 @router.post("/import-table", response_model=ImportTableResponse)
 async def import_table(request: ImportTableRequest, db: Session = Depends(get_db)):
     """Import games data from table to database."""
+    logger.info(f"Import table request: {len(request.rows)} rows, forced_update={request.is_forced_update}")
     try:
         replace_all_from_table(
             db,
@@ -33,9 +37,11 @@ async def import_table(request: ImportTableRequest, db: Session = Depends(get_db
             is_forced_update=request.is_forced_update,
         )
         db.commit()
+        logger.info(f"Successfully imported {len(request.rows)} games")
         return ImportTableResponse(status="ok", games_imported=len(request.rows))
     except Exception as exc:  # noqa: BLE001
         db.rollback()
+        logger.error(f"Error importing table data: {exc}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(exc))
 
 

@@ -14,9 +14,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Делаем скрипт запуска исполняемым (он уже скопирован через COPY backend/)
 RUN chmod +x /app/start.sh
 
+# На Windows файлы могут попасть в образ с CRLF. Нормализуем, чтобы /bin/sh не искал /bin/sh\r
+RUN sed -i 's/\r$//' /app/start.sh
+
 EXPOSE 8000
 
 # Используем скрипт запуска, который ждёт готовности БД
-CMD ["/app/start.sh"]
+CMD ["sh", "/app/start.sh"]
 
 

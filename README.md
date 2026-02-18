@@ -104,9 +104,69 @@ docker-compose down
 
 ## Команды бота
 
-- `/start` - начать работу с ботом
-- `/import_ratings` - загрузить данные из Google таблицы (только для админа)
-- `/start_ranking` - начать процесс ранжирования игр
+### Telegram бот: команды и использование
+
+Бот работает в Telegram и общается с backend через `API_BASE_URL` (см. `.env`).
+
+#### Основные команды
+
+- `/start` — показать краткую справку по доступным командам.
+
+- `/start_ranking` — начать процесс ранжирования (бот будет задавать вопросы и собирать ваш топ).
+  - Ответы выбираются кнопками в чате.
+  - В конце бот покажет итоговый список.
+
+- `/game <название>` — найти настольную игру на BoardGameGeek и показать информацию (и картинку, если доступна).
+  - Примеры:
+    - `/game Terraforming Mars`
+    - `/game Root`
+
+#### Команды администратора
+
+- `/import_ratings` — импортировать данные из Google Sheets в БД через backend API (только для админа).
+  - Требует переменных окружения: `RATING_SHEET_CSV_URL`, `ADMIN_USER_ID`.
+  - Обычно используется после обновления таблицы.
+
+#### Частые проблемы
+
+- Если `/game` или импорт не работают, проверьте:
+  - `API_BASE_URL` (в Docker обычно `http://backend:8000`)
+  - `BGG_BEARER_TOKEN` (для запросов к BGG)
+  - логи: `docker-compose logs bot` и `docker-compose logs backend`
+
+#### Логирование BGG запросов
+
+Все запросы к BGG API логируются с подробной информацией:
+- **INFO** — успешные запросы, найденные игры, количество результатов
+- **WARNING** — пустые ответы, отсутствие результатов поиска
+- **ERROR** — ошибки HTTP запросов, проблемы с парсингом XML, отсутствие токена
+
+Для просмотра логов BGG запросов:
+```bash
+# Все логи backend
+docker-compose logs backend
+
+# Только логи BGG (фильтрация)
+docker-compose logs backend | grep -i bgg
+
+# Логи в реальном времени
+docker-compose logs -f backend | grep -i bgg
+```
+
+Примеры логов при успешном поиске:
+```
+INFO - Поиск игры на BGG: query='Terraforming Mars', exact=False
+INFO - BGG search успешен: найдено 3 игр для запроса 'Terraforming Mars'
+INFO - Запрос деталей игры с BGG: game_id=167791
+INFO - BGG thing успешен для game_id=167791: name='Terraforming Mars', rank=4
+```
+
+Примеры логов при ошибках:
+```
+ERROR - BGG_BEARER_TOKEN не задан в конфигурации
+WARNING - BGG вернул пустой ответ для запроса 'NonExistentGame'
+ERROR - Ошибка HTTP запроса к BGG (попытка 1/3): Connection timeout
+```
 
 ## Импорт данных
 
