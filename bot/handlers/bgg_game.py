@@ -39,9 +39,10 @@ async def cmd_game(message: Message, api_base_url: str) -> None:
 
     try:
         async with httpx.AsyncClient() as client:
+            # Запрашиваем только первую игру для оптимизации
             resp = await client.get(
                 f"{api_base_url}/api/bgg/search",
-                params={"name": query, "exact": False},
+                params={"name": query, "exact": False, "limit": 1},
                 timeout=30.0,
             )
             resp.raise_for_status()

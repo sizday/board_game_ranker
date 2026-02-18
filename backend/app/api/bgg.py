@@ -27,34 +27,41 @@ class BGGSearchResponse(BaseModel):
 
 
 @router.get("/bgg/search", response_model=BGGSearchResponse)
-async def bgg_search(name: str, exact: bool = False) -> BGGSearchResponse:
+async def bgg_search(name: str, exact: bool = False, limit: int = 5) -> BGGSearchResponse:
     """
     Поиск игр на BGG по названию с возвратом подробной информации,
     включая мировой рейтинг и URL изображений.
+    
+    :param name: Название игры для поиска
+    :param exact: Если True, ищет только точные совпадения
+    :param limit: Максимальное количество игр, для которых загружаются детали (по умолчанию 5)
     """
-    logger.info(f"API запрос на поиск игры: name='{name}', exact={exact}")
+    logger.info(f"API запрос на поиск игры: name='{name}', exact={exact}, limit={limit}")
     try:
         found = search_boardgame(name, exact=exact)
         if not found:
             logger.warning(f"Поиск не дал результатов для запроса: name='{name}', exact={exact}")
             return BGGSearchResponse(games=[])
 
-        logger.info(f"Найдено {len(found)} игр, загружаем детали...")
+        # Ограничиваем количество игр, для которых загружаем детали
+        games_to_load = min(len(found), limit)
+        logger.info(f"Найдено {len(found)} игр, загружаем детали для первых {games_to_load}...")
+        
         games: List[BGGGameDetails] = []
-        for idx, item in enumerate(found, 1):
+        for idx, item in enumerate(found[:games_to_load], 1):
             try:
                 game_id = item.get("id")
                 if not game_id:
                     logger.warning(f"Пропущен item без id: {item}")
                     continue
-                logger.debug(f"Загрузка деталей игры {idx}/{len(found)}: game_id={game_id}")
+                logger.debug(f"Загрузка деталей игры {idx}/{games_to_load}: game_id={game_id}")
                 details = get_boardgame_details(game_id)
                 games.append(BGGGameDetails(**details))
             except Exception as e:
                 logger.error(f"Ошибка при загрузке деталей игры game_id={item.get('id')}: {e}", exc_info=True)
                 # Продолжаем обработку остальных игр
 
-        logger.info(f"Успешно загружено {len(games)} игр из {len(found)} найденных")
+        logger.info(f"Успешно загружено {len(games)} игр из {games_to_load} запрошенных")
         return BGGSearchResponse(games=games)
     except ValueError as exc:
         logger.error(f"Ошибка конфигурации BGG: {exc}")
