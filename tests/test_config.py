@@ -22,8 +22,10 @@ def test_backend_config():
         print(f"   DATABASE_URL: {config.DATABASE_URL}")
         print(f"   DB_HOST: {config.DB_HOST}")
         print(f"   DB_USER: {config.DB_USER}")
-        print(f"   FLASK_ENV: {config.FLASK_ENV}")
+        print(f"   APP_ENV: {config.APP_ENV}")
         print(f"   DEBUG: {config.DEBUG}")
+        print(f"   DEFAULT_LANGUAGE: {config.DEFAULT_LANGUAGE}")
+        print(f"   GAME_UPDATE_DAYS: {config.GAME_UPDATE_DAYS}")
 
         return True
     except Exception as e:

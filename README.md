@@ -198,6 +198,37 @@ ERROR - Ошибка HTTP запроса к BGG (попытка 1/3): Connection
 - `backend/app/config.py` - конфигурация backend (база данных, сервер)
 - `bot/config.py` - конфигурация бота (токены, URLs, timeouts)
 
+## Тестирование
+
+### Запуск тестов
+
+```bash
+# Запуск всех тестов
+python tests/run_tests.py
+
+# Или запуск отдельных типов тестов
+python -m pytest tests/ -v
+
+# Запуск тестов конфигурации
+python tests/test_config.py
+
+# Запуск тестов администратора
+python tests/test_admin.py
+
+# Запуск тестов импорта
+python tests/test_import.py
+```
+
+### Структура тестов
+
+- `tests/test_translation_service.py` - тесты сервиса перевода
+- `tests/test_repositories.py` - тесты функций репозитория
+- `tests/test_api_games.py` - тесты API endpoints для игр
+- `tests/test_bot_handlers.py` - тесты обработчиков бота
+- `tests/test_config.py` - тесты конфигурации
+- `tests/test_admin.py` - тесты функционала админа
+- `tests/test_import.py` - тесты импорта данных
+
 ## Разработка
 
 ### Локальный запуск backend
