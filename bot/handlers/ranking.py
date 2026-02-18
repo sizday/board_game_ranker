@@ -35,13 +35,24 @@ async def _handle_phase_transition(
             f"Игра: <b>{game['name']}</b>{year_text}{usersrated_text}{bgg_text}\n"
             f"Отметь, насколько она тебе понравилась."
         )
-        await callback.message.edit_text(
-            text,
-            reply_markup=_first_tier_keyboard(
-                session_id=session_id,
-                game_id=game["id"],
-            ),
-        )
+        thumbnail = game.get("thumbnail")
+        if thumbnail:
+            await callback.message.answer_photo(
+                photo=thumbnail,
+                caption=text,
+                reply_markup=_first_tier_keyboard(
+                    session_id=session_id,
+                    game_id=game["id"],
+                ),
+            )
+        else:
+            await callback.message.answer(
+                text,
+                reply_markup=_first_tier_keyboard(
+                    session_id=session_id,
+                    game_id=game["id"],
+                ),
+            )
     elif phase == "second_tier":
         await state.set_state(RankingStates.second_tier)
         game = payload["next_game"]
@@ -56,13 +67,24 @@ async def _handle_phase_transition(
             f"Игра: <b>{game['name']}</b>{year_text}{usersrated_text}{bgg_text}\n"
             f"Выбери, насколько она крутая."
         )
-        await callback.message.edit_text(
-            text,
-            reply_markup=_second_tier_keyboard(
-                session_id=session_id,
-                game_id=game["id"],
-            ),
-        )
+        thumbnail = game.get("thumbnail")
+        if thumbnail:
+            await callback.message.answer_photo(
+                photo=thumbnail,
+                caption=text,
+                reply_markup=_second_tier_keyboard(
+                    session_id=session_id,
+                    game_id=game["id"],
+                ),
+            )
+        else:
+            await callback.message.answer(
+                text,
+                reply_markup=_second_tier_keyboard(
+                    session_id=session_id,
+                    game_id=game["id"],
+                ),
+            )
     elif phase == "final":
         await state.set_state(RankingStates.final)
         top = payload.get("top", [])
@@ -160,10 +182,18 @@ async def _send_first_tier_question(
             f"Игра: <b>{game['name']}</b>{usersrated_text}\n"
             f"Отметь, насколько она тебе понравилась."
         )
-        await message.answer(
-            text,
-            reply_markup=_first_tier_keyboard(session_id=session_id, game_id=game["id"]),
-        )
+        thumbnail = game.get("thumbnail")
+        if thumbnail:
+            await message.answer_photo(
+                photo=thumbnail,
+                caption=text,
+                reply_markup=_first_tier_keyboard(session_id=session_id, game_id=game["id"]),
+            )
+        else:
+            await message.answer(
+                text,
+                reply_markup=_first_tier_keyboard(session_id=session_id, game_id=game["id"]),
+            )
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP error starting ranking for {user_name}: {e.response.status_code}")
         raise

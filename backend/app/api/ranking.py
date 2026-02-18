@@ -28,6 +28,8 @@ class GameItem(BaseModel):
     maxplayers: int | None = None
     playingtime: int | None = None
     minage: int | None = None
+    image: str | None = None
+    thumbnail: str | None = None
 
 
 class RankGamesRequest(BaseModel):
@@ -86,6 +88,8 @@ async def rank_games_endpoint(request: RankGamesRequest):
                 maxplayers=getattr(rg.game, "maxplayers", None),
                 playingtime=getattr(rg.game, "playingtime", None),
                 minage=getattr(rg.game, "minage", None),
+                image=getattr(rg.game, "image", None),
+                thumbnail=getattr(rg.game, "thumbnail", None),
             )
             for rg in result.ranked_games
         ]
@@ -120,6 +124,8 @@ async def ranking_start(request: RankingStartRequest, db: Session = Depends(get_
                 maxplayers=data["game"].get("maxplayers"),
                 playingtime=data["game"].get("playingtime"),
                 minage=data["game"].get("minage"),
+                image=data["game"].get("image"),
+                thumbnail=data["game"].get("thumbnail"),
             ),
         )
     except Exception as exc:  # noqa: BLE001
@@ -175,6 +181,8 @@ async def ranking_answer_first(
                 maxplayers=data["next_game"].get("maxplayers"),
                 playingtime=data["next_game"].get("playingtime"),
                 minage=data["next_game"].get("minage"),
+                image=data["next_game"].get("image"),
+                thumbnail=data["next_game"].get("thumbnail"),
             )
 
         if data.get("phase") == "final" and "top" in data:
@@ -188,6 +196,8 @@ async def ranking_answer_first(
                     average=item.get("average"),
                     bayesaverage=item.get("bayesaverage"),
                     averageweight=item.get("averageweight"),
+                    image=item.get("image"),
+                    thumbnail=item.get("thumbnail"),
                 )
                 for item in data["top"]
             ]
@@ -249,6 +259,8 @@ async def ranking_answer_second(
                 maxplayers=data["next_game"].get("maxplayers"),
                 playingtime=data["next_game"].get("playingtime"),
                 minage=data["next_game"].get("minage"),
+                image=data["next_game"].get("image"),
+                thumbnail=data["next_game"].get("thumbnail"),
             )
 
         if data.get("phase") == "final" and "top" in data:
@@ -262,6 +274,8 @@ async def ranking_answer_second(
                     average=item.get("average"),
                     bayesaverage=item.get("bayesaverage"),
                     averageweight=item.get("averageweight"),
+                    image=item.get("image"),
+                    thumbnail=item.get("thumbnail"),
                 )
                 for item in data["top"]
             ]
