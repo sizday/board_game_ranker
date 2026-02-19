@@ -147,7 +147,8 @@ def _fetch_bgg_details_for_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
 
     Приоритет:
     1. Если в строке есть явный bgg_id — сразу дергаем get_boardgame_details.
-    2. Иначе ищем по имени через search_boardgame (exact=False), берем первый результат.
+    2. Иначе ищем по имени через search_boardgame (exact=False), выбираем наиболее релевантный результат
+       с приоритетом точным совпадениям названия.
     """
     explicit_bgg_id = row.get("bgg_id")
     name = row.get("name")
@@ -173,21 +174,50 @@ def _fetch_bgg_details_for_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
         if not found:
             logger.warning(f"No BGG results found for game: {name}")
             return None
-        first = found[0]
-        if not first.get("id"):
-            logger.warning(f"BGG search result has no ID for game: {name}")
+
+        # Получаем детали для большего количества кандидатов для выбора лучшего
+        candidates_limit = min(len(found), 5)  # Берем до 5 кандидатов для сортировки
+        candidates: List[Dict[str, Any]] = []
+
+        for idx, item in enumerate(found[:candidates_limit], 1):
+            try:
+                game_id = item.get("id")
+                if not game_id:
+                    logger.warning(f"Пропущен item без id: {item}")
+                    continue
+
+                logger.debug(f"Загрузка деталей кандидата {idx}/{candidates_limit}: game_id={game_id}")
+                details = get_boardgame_details(game_id)
+                candidates.append(details)
+                # Задержка между запросами для избежания rate limiting
+                time.sleep(config.BGG_REQUEST_DELAY)
+            except Exception as e:
+                logger.error(f"Ошибка при загрузке деталей кандидата game_id={item.get('id')}: {e}", exc_info=True)
+                continue
+
+        if not candidates:
+            logger.warning(f"Не удалось загрузить детали ни для одного кандидата для игры: {name}")
             return None
 
-        # Задержка между запросами для избежания rate limiting
-        time.sleep(config.BGG_REQUEST_DELAY)
+        # Сортируем кандидатов по релевантности:
+        # 1. Сначала игры с точным совпадением названия (без учета регистра)
+        # 2. Затем по мировому рейтингу (меньше число = выше рейтинг)
+        # 3. Наконец по количеству голосов (больше = лучше)
+        def sort_key(candidate: Dict[str, Any]) -> tuple:
+            candidate_name = (candidate.get("name") or '').lower()
+            query_name = name.lower()
+            exact_match = candidate_name == query_name
+            rank = candidate.get("rank") or 999999  # Если нет рейтинга, ставим в конец
+            users_rated = candidate.get("usersrated") or 0
+            return (0 if exact_match else 1, rank, -users_rated)  # exact_match первым, затем лучший рейтинг, затем больше голосов
 
-        logger.debug(f"Found BGG game ID {first['id']} for {name}, fetching details")
-        result = get_boardgame_details(first["id"])
+        candidates_sorted = sorted(candidates, key=sort_key)
+        best_candidate = candidates_sorted[0]
 
-        # Задержка после второго запроса
-        time.sleep(config.BGG_REQUEST_DELAY)
+        logger.info(f"Выбран лучший кандидат для '{name}': '{best_candidate.get('name')}' (ID: {best_candidate.get('id')}, rank: {best_candidate.get('rank')})")
 
-        return result
+        return best_candidate
+
     except Exception as e:
         logger.error(f"Error fetching BGG details for game {name}: {e}", exc_info=True)
         return None
