@@ -265,7 +265,7 @@ def replace_all_from_table(
             "niza_games_rank": int | None,
             "genre": str | None,
             "description_ru": str | None,  # (опционально) русский перевод описания
-            "ratings": { "user_name": int, ... }  # рейтинг 0-10, где 0 = не оценивал
+            "ratings": { "user_name": int, ... }  # рейтинг 1-50, где 0 = не оценивал
         },
         ...
     ]
@@ -418,8 +418,8 @@ def replace_all_from_table(
                         logger.info(f"Пропускаем специального пользователя '{user_name}' для игры '{name}' (очищено: '{user_name_clean}')")
                         continue
 
-                    # rank теперь всегда должен быть числом (0-10), так как логика фильтрации уже применена выше
-                    if not isinstance(rank, int) or not (0 <= rank <= 10):
+                    # rank теперь всегда должен быть числом (1-50), так как логика фильтрации уже применена выше
+                    if not isinstance(rank, int) or not (1 <= rank <= 50):
                         logger.warning(f"Invalid rank value for game '{name}', user '{user_name}': {rank} (type: {type(rank)})")
                         continue
 

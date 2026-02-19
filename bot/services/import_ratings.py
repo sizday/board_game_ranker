@@ -121,10 +121,24 @@ async def _process_sheet_data(api_base_url: str, rows: List[List[str]], progress
     # 1: жанр
     # 2: bgg (рейтинг BGG)
     # 3: НизаГамс (рейтинг Niza Games)
-    # 4..N: имена пользователей (столбцы рейтингов)
-    all_user_names = [h.strip() for h in header[4:] if h.strip()]
-    user_names: List[str] = [h for h in all_user_names if h.lower() != "общий"]
-    # Excluded special users from ratings and user count - removed logging to reduce noise
+    # 4..N: имена пользователей (столбцы рейтингов) до столбца "общий"
+
+    # Находим индекс столбца "общий"
+    obshii_index = None
+    for i, col_name in enumerate(header):
+        if col_name.strip().lower() == "общий":
+            obshii_index = i
+            break
+
+    # Берем пользователей от столбца 4 (после "НизаГамс") до столбца "общий" (не включая его)
+    if obshii_index is not None and obshii_index > 4:
+        user_names = [h.strip() for h in header[4:obshii_index] if h.strip()]
+    else:
+        # Если столбец "общий" не найден или находится слишком рано, берем всех начиная с 4-го столбца
+        all_user_names = [h.strip() for h in header[4:] if h.strip()]
+        user_names = [h for h in all_user_names if h.lower() != "общий"]
+
+    logger.debug(f"Extracted user names from columns 4 to {obshii_index or 'end'}: {user_names}")
 
     data_rows: List[Dict] = []
     skipped_rows = 0
@@ -167,7 +181,7 @@ async def _process_sheet_data(api_base_url: str, rows: List[List[str]], progress
             else:
                 try:
                     rating_value = int(cell)
-                    if 0 <= rating_value <= 10:
+                    if 1 <= rating_value <= 50:
                         ratings[user_name] = rating_value
                     else:
                         # Некорректное числовое значение - считаем как не оценивал
