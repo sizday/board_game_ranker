@@ -145,10 +145,13 @@ def _fetch_bgg_details_for_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
     Вспомогательная функция: по названию (и, опционально, bgg_id) получает
     подробные данные игры из BGG.
 
-    Приоритет:
+    Приоритет выбора кандидата:
     1. Если в строке есть явный bgg_id — сразу дергаем get_boardgame_details.
-    2. Иначе ищем по имени через search_boardgame (exact=False), выбираем наиболее релевантный результат
-       с приоритетом точным совпадениям названия.
+    2. Иначе ищем по имени через search_boardgame (exact=False), выбираем наиболее релевантный результат:
+       - Сначала точные совпадения названия
+       - Затем основные игры (boardgame) перед расширениями (boardgameexpansion)
+       - Затем по мировому рейтингу (выше рейтинг = выше приоритет)
+       - Наконец по количеству голосов (больше голосов = выше приоритет)
     """
     explicit_bgg_id = row.get("bgg_id")
     name = row.get("name")
@@ -201,15 +204,27 @@ def _fetch_bgg_details_for_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
 
         # Сортируем кандидатов по релевантности:
         # 1. Сначала игры с точным совпадением названия (без учета регистра)
-        # 2. Затем по мировому рейтингу (меньше число = выше рейтинг)
-        # 3. Наконец по количеству голосов (больше = лучше)
+        # 2. Затем основные игры (boardgame) перед расширениями (boardgameexpansion)
+        # 3. Затем по мировому рейтингу (меньше число = выше рейтинг)
+        # 4. Наконец по количеству голосов (больше = лучше)
         def sort_key(candidate: Dict[str, Any]) -> tuple:
             candidate_name = (candidate.get("name") or '').lower()
             query_name = name.lower()
             exact_match = candidate_name == query_name
-            rank = candidate.get("rank") or 999999  # Если нет рейтинга, ставим в конец
+
+            # Определяем приоритет по типу игры
+            game_type = candidate.get("type", "").lower()
+            is_base_game = game_type == "boardgame"  # Основная игра имеет приоритет
+
+            rank = candidate.get("rank") or 999999
             users_rated = candidate.get("usersrated") or 0
-            return (0 if exact_match else 1, rank, -users_rated)  # exact_match первым, затем лучший рейтинг, затем больше голосов
+
+            return (
+                0 if exact_match else 1,      # Точное совпадение первым
+                0 if is_base_game else 1,     # Основные игры перед расширениями
+                rank,                         # Лучший рейтинг (меньше число = выше)
+                -users_rated                  # Больше голосов
+            )
 
         candidates_sorted = sorted(candidates, key=sort_key)
         best_candidate = candidates_sorted[0]
@@ -235,6 +250,7 @@ def replace_all_from_table(
 
     Отличия от предыдущей версии:
     - больше НЕ удаляет игры и рейтинги целиком;
+    - рейтинги добавляются/обновляются последовательно вместе с играми;
     - для каждой игры делает запрос к BGG и сохраняет все доступные поля;
     - поле мирового рейтинга (bgg_rank) и сопутствующие метаданные
       всегда подтягиваются по API, а не из таблицы;
@@ -264,15 +280,15 @@ def replace_all_from_table(
         logger.warning("No rows to process!")
         return
     
-    # Рейтинги пересоздаем полностью, чтобы структура оставалась консистентной
-    deleted_ratings = session.query(RatingModel).delete()
-    logger.info(f"Deleted {deleted_ratings} existing ratings")
+    # Рейтинги добавляем/обновляем последовательно вместе с играми
+    # (не удаляем существующие, чтобы сохранить историю)
 
     games_created = 0
     games_updated = 0
     games_bgg_updated = 0
     games_bgg_not_found = 0
     ratings_added = 0
+    ratings_updated = 0
 
     for idx, row in enumerate(rows, 1):
         try:
@@ -385,6 +401,11 @@ def replace_all_from_table(
                 logger.warning(f"Invalid ratings format for game '{name}': expected dict, got {type(ratings)}")
                 ratings = {}
 
+            # Логируем пользователей для диагностики
+            if ratings:
+                user_list = list(ratings.keys())
+                logger.debug(f"Processing ratings for game '{name}': {len(ratings)} users - {user_list[:5]}{'...' if len(user_list) > 5 else ''}")
+
             for user_name, rank in ratings.items():
                 try:
                     if not isinstance(user_name, str) or not user_name.strip():
@@ -392,8 +413,9 @@ def replace_all_from_table(
                         continue
 
                     # Пропускаем специального пользователя "Общий" - это не настоящий пользователь
-                    if user_name.strip().lower() == "общий":
-                        logger.debug(f"Skipping special user 'Общий' for game '{name}'")
+                    user_name_clean = user_name.strip().lower()
+                    if user_name_clean in ["общий", "общая", "general", "общий рейтинг"]:
+                        logger.info(f"Пропускаем специального пользователя '{user_name}' для игры '{name}' (очищено: '{user_name_clean}')")
                         continue
 
                     # rank теперь всегда должен быть числом (0-10), так как логика фильтрации уже применена выше
@@ -401,13 +423,27 @@ def replace_all_from_table(
                         logger.warning(f"Invalid rank value for game '{name}', user '{user_name}': {rank} (type: {type(rank)})")
                         continue
 
-                    rating = RatingModel(
-                        user_name=user_name.strip(),
-                        game_id=game.id,
-                        rank=rank,
-                    )
-                    session.add(rating)
-                    ratings_added += 1
+                    # Проверяем, существует ли уже рейтинг для этого пользователя и игры
+                    existing_rating = session.query(RatingModel).filter(
+                        RatingModel.user_name == user_name.strip(),
+                        RatingModel.game_id == game.id
+                    ).first()
+
+                    if existing_rating:
+                        # Обновляем существующий рейтинг
+                        existing_rating.rank = rank
+                        ratings_updated += 1
+                        logger.debug(f"Updated rating for user '{user_name.strip()}' and game '{name}': {rank}")
+                    else:
+                        # Создаем новый рейтинг
+                        rating = RatingModel(
+                            user_name=user_name.strip(),
+                            game_id=game.id,
+                            rank=rank,
+                        )
+                        session.add(rating)
+                        ratings_added += 1
+                        logger.debug(f"Created rating for user '{user_name.strip()}' and game '{name}': {rank}")
 
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Error processing rating for game '{name}', user '{user_name}': {e}")
@@ -418,7 +454,7 @@ def replace_all_from_table(
 
             # Отправляем прогресс если есть callback
             if progress_callback:
-                progress_msg = f"Обработано игр: {idx}/{len(rows)} ({games_created} создано, {games_updated} обновлено, {games_bgg_updated} BGG обновлено, {games_bgg_not_found} не найдено на BGG)"
+                progress_msg = f"Обработано игр: {idx}/{len(rows)} ({games_created} создано, {games_updated} обновлено, {games_bgg_updated} BGG обновлено, {games_bgg_not_found} не найдено на BGG, {ratings_added} рейтингов добавлено, {ratings_updated} обновлено)"
                 progress_callback(idx, len(rows), progress_msg)
 
         except Exception as e:
@@ -432,12 +468,13 @@ def replace_all_from_table(
 
     # Финальный callback с итоговой статистикой
     if progress_callback:
-        final_msg = f"Импорт завершен! Создано: {games_created}, обновлено: {games_updated}, BGG обновлено: {games_bgg_updated}, не найдено на BGG: {games_bgg_not_found}, рейтингов добавлено: {ratings_added}"
+        final_msg = f"Импорт завершен! Создано: {games_created}, обновлено: {games_updated}, BGG обновлено: {games_bgg_updated}, не найдено на BGG: {games_bgg_not_found}, рейтингов добавлено: {ratings_added}, обновлено: {ratings_updated}"
         progress_callback(len(rows), len(rows), final_msg)
 
     logger.info(
         f"Import completed: created={games_created}, updated={games_updated}, "
-        f"bgg_updated={games_bgg_updated}, bgg_not_found={games_bgg_not_found}, ratings_added={ratings_added}"
+        f"bgg_updated={games_bgg_updated}, bgg_not_found={games_bgg_not_found}, "
+        f"ratings_added={ratings_added}, ratings_updated={ratings_updated}"
     )
 
 

@@ -63,7 +63,7 @@ def search_boardgame(
     :param exact: Если True — ищет только точные совпадения.
     :param retries: Кол-во попыток при нестабильности API.
     :param timeout: Таймаут HTTP‑запроса в секундах.
-    :return: Список словарей с полями: id, name, yearpublished.
+    :return: Список словарей с полями: id, name, type, yearpublished.
     """
     headers = _build_headers(token)
 
@@ -203,6 +203,7 @@ def _parse_search_response(xml_text: str) -> List[Dict[str, Any]]:
 
         for item in items:
             game_id = item.attrib.get("id")
+            game_type = item.attrib.get("type")  # boardgame, boardgameexpansion, etc.
 
             # Внутри item есть дочерний элемент <name value="...">
             name_el = item.find("name")
@@ -219,6 +220,7 @@ def _parse_search_response(xml_text: str) -> List[Dict[str, Any]]:
                 {
                     "id": int(game_id) if game_id is not None else None,
                     "name": name,
+                    "type": game_type,  # Добавляем тип игры
                     "yearpublished": int(year) if year is not None and year.isdigit() else None,
                 }
             )
