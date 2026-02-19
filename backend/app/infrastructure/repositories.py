@@ -172,7 +172,7 @@ def _fetch_bgg_details_for_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
     try:
         found = search_boardgame(name, exact=False)
         if not found:
-            logger.warning(f"No BGG results found for game: {name}")
+            logger.warning(f"❌ No BGG search results found for game: '{name}'")
             return None
 
         # Получаем детали для большего количества кандидатов для выбора лучшего
@@ -196,7 +196,7 @@ def _fetch_bgg_details_for_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
                 continue
 
         if not candidates:
-            logger.warning(f"Не удалось загрузить детали ни для одного кандидата для игры: {name}")
+            logger.warning(f"❌ Failed to load details for any BGG candidates for game: '{name}' (found {len(found)} candidates)")
             return None
 
         # Сортируем кандидатов по релевантности:
@@ -269,6 +269,7 @@ def replace_all_from_table(
     games_created = 0
     games_updated = 0
     games_bgg_updated = 0
+    games_bgg_not_found = 0
     ratings_added = 0
 
     for idx, row in enumerate(rows, 1):
@@ -363,6 +364,9 @@ def replace_all_from_table(
                     game.description = details.get("description")
                     games_bgg_updated += 1
                     logger.debug(f"Updated BGG data for game: {name}")
+                else:
+                    logger.warning(f"❌ Game '{name}' not found on BGG during import (row bgg_id: {row.get('bgg_id')})")
+                    games_bgg_not_found += 1
 
             session.flush()
 
@@ -400,7 +404,7 @@ def replace_all_from_table(
 
             # Отправляем прогресс если есть callback
             if progress_callback:
-                progress_msg = f"Обработано игр: {idx}/{len(rows)} ({games_created} создано, {games_updated} обновлено, {games_bgg_updated} BGG обновлено)"
+                progress_msg = f"Обработано игр: {idx}/{len(rows)} ({games_created} создано, {games_updated} обновлено, {games_bgg_updated} BGG обновлено, {games_bgg_not_found} не найдено на BGG)"
                 progress_callback(idx, len(rows), progress_msg)
 
         except Exception as e:
@@ -410,16 +414,16 @@ def replace_all_from_table(
             continue
 
         # Небольшая задержка между обработкой игр для снижения нагрузки на API
-        time.sleep(0.5)
+        time.sleep(config.BGG_REQUEST_DELAY)
 
     # Финальный callback с итоговой статистикой
     if progress_callback:
-        final_msg = f"Импорт завершен! Создано: {games_created}, обновлено: {games_updated}, BGG обновлено: {games_bgg_updated}, рейтингов добавлено: {ratings_added}"
+        final_msg = f"Импорт завершен! Создано: {games_created}, обновлено: {games_updated}, BGG обновлено: {games_bgg_updated}, не найдено на BGG: {games_bgg_not_found}, рейтингов добавлено: {ratings_added}"
         progress_callback(len(rows), len(rows), final_msg)
 
     logger.info(
         f"Import completed: created={games_created}, updated={games_updated}, "
-        f"bgg_updated={games_bgg_updated}, ratings_added={ratings_added}"
+        f"bgg_updated={games_bgg_updated}, bgg_not_found={games_bgg_not_found}, ratings_added={ratings_added}"
     )
 
 
