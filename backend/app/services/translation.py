@@ -167,13 +167,17 @@ class TranslationService:
         """
         Фоновая задача для перевода описаний игр, у которых нет русского перевода.
 
-        :param db: Сессия базы данных
+        :param db: Сессия базы данных (не используется, создаем новую)
         """
         logger.info("🔄 Starting background translation task")
 
         if not self.translator:
             logger.warning("❌ Translation service not available, skipping background translation")
             return
+
+        # Создаем новую сессию базы данных для фоновой задачи
+        from app.infrastructure.db import get_db
+        db = next(get_db())
 
         try:
             # Находим игры без русского описания, но с английским
@@ -245,6 +249,9 @@ class TranslationService:
                 logger.info("🔄 Database transaction rolled back")
             except Exception as rollback_error:
                 logger.error(f"❌ Failed to rollback transaction: {rollback_error}")
+        finally:
+            db.close()
+            logger.debug("🔒 Database session closed in background translation task")
 
 
 # Глобальный экземпляр сервиса

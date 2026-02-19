@@ -11,7 +11,6 @@ from app.infrastructure.db import get_db
 from app.infrastructure.models import GameModel
 from app.infrastructure.repositories import save_game_from_bgg_data
 from app.services.translation import translate_game_descriptions_background, translation_service
-from app.infrastructure.models import GameModel
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +142,25 @@ async def fix_translations(db: Session = Depends(get_db)) -> dict:
     except Exception as exc:
         logger.error(f"Error fixing translations: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Ошибка исправления переводов: {exc}")
+
+
+@router.post("/games/translate-all")
+async def translate_all_games(db: Session = Depends(get_db)) -> dict:
+    """
+    Запускает перевод описаний для всех игр, у которых нет русского перевода.
+    """
+    logger.info("API request to translate all games")
+    try:
+        # Запускаем фоновую задачу перевода
+        from app.services.translation import translate_game_descriptions_background
+        await translate_game_descriptions_background(db)
+        return {
+            "status": "ok",
+            "message": "Перевод запущен в фоне"
+        }
+    except Exception as exc:
+        logger.error(f"Error starting translation: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка запуска перевода: {exc}")
 
 
 @router.post("/games/save-from-bgg", response_model=GameDetails)

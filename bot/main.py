@@ -1,6 +1,10 @@
 import asyncio
 import logging
 import sys
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения из .env файла
+load_dotenv()
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -160,7 +164,7 @@ async def on_clear_database(message: Message):
 
 async def main():
     logger.info("Starting bot...")
-    
+
     # Валидация конфигурации
     try:
         config.validate()

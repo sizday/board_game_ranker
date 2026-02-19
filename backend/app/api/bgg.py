@@ -51,16 +51,38 @@ async def bgg_search(name: str, exact: bool = False, limit: int = 5) -> BGGSearc
     """
     Поиск игр на BGG по названию с возвратом подробной информации,
     включая мировой рейтинг и URL изображений.
-    
+
     :param name: Название игры для поиска
     :param exact: Если True, ищет только точные совпадения
     :param limit: Максимальное количество игр, для которых загружаются детали (по умолчанию 5)
     """
+    print(f"🔍 BGG search API called: name='{name}', exact={exact}, limit={limit}", flush=True)
+    print(f"🔍 BGG API called: name='{name}', exact={exact}, limit={limit}", flush=True)
     logger.info(f"API запрос на поиск игры: name='{name}', exact={exact}, limit={limit}")
     try:
-        found = search_boardgame(name, exact=exact)
+        if exact:
+            # Для точного поиска просто ищем
+            print(f"🎯 Doing exact search for '{name}'", flush=True)
+            found = search_boardgame(name, exact=True)
+            print(f"🎯 Exact search returned {len(found)} results", flush=True)
+        else:
+            # Для нечеткого поиска: сначала ищем точно, потом добавляем результаты нечеткого поиска
+            print(f"🔄 Doing combined search for '{name}'", flush=True)
+            found = search_boardgame(name, exact=True)  # Начинаем с точных результатов
+            print(f"🎯 Exact part found {len(found)} results", flush=True)
+            fuzzy_results = search_boardgame(name, exact=False)  # Добавляем нечеткие результаты
+            print(f"🔍 Fuzzy part found {len(fuzzy_results)} results", flush=True)
+
+            # Убираем дубликаты по ID
+            existing_ids = {item.get('id') for item in found}
+            new_fuzzy_results = [item for item in fuzzy_results if item.get('id') not in existing_ids]
+            found.extend(new_fuzzy_results)
+            print(f"📊 Combined results: {len(found)} total games", flush=True)
+
+        logger.info(f"Поиск BGG дал {len(found)} результатов для '{name}' (exact={exact})")
+
         if not found:
-            logger.warning(f"Поиск не дал результатов для запроса: name='{name}', exact={exact}")
+            logger.warning(f"Поиск не дал результатов для: '{name}'")
             return BGGSearchResponse(games=[])
 
         # Загружаем детали для большего количества игр, чтобы иметь данные для сортировки
@@ -90,9 +112,14 @@ async def bgg_search(name: str, exact: bool = False, limit: int = 5) -> BGGSearc
             game_name = (game.name or '').lower()
             query_name = name.lower()
             exact_match = game_name == query_name
+
+            # Проверяем, является ли игра основной (не расширением)
+            is_base_game = 'expansion' not in game_name and 'fan' not in game_name
+            base_game_priority = 0 if is_base_game else 1  # Основные игры имеют приоритет
+
             rank = game.rank or 999999  # Если нет рейтинга, ставим в конец
             users_rated = game.usersrated or 0
-            return (0 if exact_match else 1, rank, -users_rated)  # exact_match первым, затем лучший рейтинг, затем больше голосов
+            return (0 if exact_match else 1, base_game_priority, rank, -users_rated)  # exact_match первым, затем основные игры, затем лучший рейтинг, затем больше голосов
 
         candidates_sorted = sorted(candidates, key=sort_key)
         logger.info(f"Результаты отсортированы по релевантности. Первый результат: '{candidates_sorted[0].name}' (rank: {candidates_sorted[0].rank})")
