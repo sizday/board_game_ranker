@@ -62,6 +62,9 @@ class Config:
     # и могут быть автоматически обновлены при импорте таблицы.
     GAME_UPDATE_DAYS: int = int(os.getenv("GAME_UPDATE_DAYS", "30"))
 
+    # Задержка между запросами к BGG API в секундах (для избежания rate limiting)
+    BGG_REQUEST_DELAY: float = float(os.getenv("BGG_REQUEST_DELAY", "2.0"))
+
     # Язык по умолчанию для отображения описаний игр
     # "ru" - русский (переведенный), "en" - английский (оригинал)
     DEFAULT_LANGUAGE: str = os.getenv("DEFAULT_LANGUAGE", "ru")

@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any
 
@@ -113,16 +114,25 @@ def _should_update_game(game: GameModel, is_forced_update: bool) -> bool:
     """
     Возвращает True, если данные игры нужно обновить запросом к BGG.
 
-    - при is_forced_update=True обновляем всегда;
-    - иначе — только если прошло больше месяца с момента последнего обновления
-      (updated_at) или updated_at отсутствует.
+    Обновляем в следующих случаях:
+    - is_forced_update=True (принудительное обновление)
+    - Новая игра (нет bgg_id - данные из BGG не загружались)
+    - Существующая игра, данные которой старше 30 дней
     """
     if is_forced_update:
         logger.debug(f"Forced update requested for game: {game.name}")
         return True
+
+    # Новая игра - нет данных из BGG
+    if not game.bgg_id:
+        logger.debug(f"Game {game.name} has no BGG ID, update needed")
+        return True
+
+    # Существующая игра - проверяем дату последнего обновления
     if not game.updated_at:
         logger.debug(f"Game {game.name} has no updated_at, update needed")
         return True
+
     now = datetime.now(timezone.utc)
     should_update = now - game.updated_at > GAME_UPDATE_DELTA
     if should_update:
@@ -141,11 +151,14 @@ def _fetch_bgg_details_for_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
     """
     explicit_bgg_id = row.get("bgg_id")
     name = row.get("name")
-    
+
     if explicit_bgg_id:
         logger.debug(f"Fetching BGG details by explicit ID: {explicit_bgg_id} for game: {name}")
         try:
-            return get_boardgame_details(int(explicit_bgg_id))
+            result = get_boardgame_details(int(explicit_bgg_id))
+            # Задержка между запросами для избежания rate limiting
+            time.sleep(config.BGG_REQUEST_DELAY)
+            return result
         except Exception as e:
             logger.warning(f"Failed to fetch BGG details by ID {explicit_bgg_id}: {e}")
             return None
@@ -164,8 +177,17 @@ def _fetch_bgg_details_for_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
         if not first.get("id"):
             logger.warning(f"BGG search result has no ID for game: {name}")
             return None
+
+        # Задержка между запросами для избежания rate limiting
+        time.sleep(config.BGG_REQUEST_DELAY)
+
         logger.debug(f"Found BGG game ID {first['id']} for {name}, fetching details")
-        return get_boardgame_details(first["id"])
+        result = get_boardgame_details(first["id"])
+
+        # Задержка после второго запроса
+        time.sleep(config.BGG_REQUEST_DELAY)
+
+        return result
     except Exception as e:
         logger.error(f"Error fetching BGG details for game {name}: {e}", exc_info=True)
         return None
@@ -200,6 +222,14 @@ def replace_all_from_table(
     ]
     """
     logger.info(f"Starting import from table: {len(rows)} rows, forced_update={is_forced_update}")
+
+    # Логируем структуру данных для диагностики
+    if rows:
+        logger.debug(f"Sample row structure: {rows[0]}")
+        logger.debug(f"Row keys: {list(rows[0].keys())}")
+    else:
+        logger.warning("No rows to process!")
+        return
     
     # Рейтинги пересоздаем полностью, чтобы структура оставалась консистентной
     deleted_ratings = session.query(RatingModel).delete()
@@ -211,77 +241,139 @@ def replace_all_from_table(
     ratings_added = 0
 
     for idx, row in enumerate(rows, 1):
-        name = row.get("name")
-        if not name:
-            logger.debug(f"Skipping row {idx}: no name")
+        try:
+            name = row.get("name")
+            if not name:
+                logger.debug(f"Skipping row {idx}: no name")
+                continue
+
+            # Валидируем структуру данных
+            if not isinstance(row, dict):
+                logger.warning(f"Skipping row {idx}: not a dict, got {type(row)}")
+                continue
+
+            # Проверяем, что name является строкой
+            if not isinstance(name, str):
+                logger.warning(f"Skipping row {idx}: name is not string, got {type(name)}")
+                continue
+
+            name = name.strip()
+            if not name:
+                logger.debug(f"Skipping row {idx}: empty name after strip")
+                continue
+
+            logger.debug(f"Processing row {idx}: game='{name}'")
+
+        except Exception as e:
+            logger.warning(f"Error validating row {idx}: {e}")
             continue
 
-        # Ищем игру по имени (можно доработать до поиска по bgg_id при необходимости)
-        game: GameModel | None = (
-            session.query(GameModel)
-            .filter(GameModel.name == name)
-            .one_or_none()
-        )
-
-        if game is None:
-            game = GameModel(name=name)
-            session.add(game)
-            session.flush()
-            games_created += 1
-            logger.debug(f"Created new game: {name}")
-        else:
-            games_updated += 1
-            logger.debug(f"Updating existing game: {name}")
-
-        # Всегда обновляем "локальные" поля из таблицы
-        game.niza_games_rank = row.get("niza_games_rank")
-        game.genre = _parse_genre(row.get("genre"))
-
-        # Решаем, нужно ли идти в BGG за свежими данными
-        if _should_update_game(game, is_forced_update):
-            details = _fetch_bgg_details_for_row(row)
-            if details:
-                game.bgg_id = details.get("id")
-                game.bgg_rank = details.get("rank")
-                game.yearpublished = details.get("yearpublished")
-                game.bayesaverage = details.get("bayesaverage")
-                game.usersrated = details.get("usersrated")
-                game.minplayers = details.get("minplayers")
-                game.maxplayers = details.get("maxplayers")
-                game.playingtime = details.get("playingtime")
-                game.minplaytime = details.get("minplaytime")
-                game.maxplaytime = details.get("maxplaytime")
-                game.minage = details.get("minage")
-                game.average = details.get("average")
-                game.numcomments = details.get("numcomments")
-                game.owned = details.get("owned")
-                game.trading = details.get("trading")
-                game.wanting = details.get("wanting")
-                game.wishing = details.get("wishing")
-                game.averageweight = details.get("averageweight")
-                game.numweights = details.get("numweights")
-                game.categories = details.get("categories")
-                game.mechanics = details.get("mechanics")
-                game.designers = details.get("designers")
-                game.publishers = details.get("publishers")
-                game.image = details.get("image")
-                game.thumbnail = details.get("thumbnail")
-                game.description = details.get("description")
-                games_bgg_updated += 1
-                logger.debug(f"Updated BGG data for game: {name}")
-
-        session.flush()
-
-        # Добавляем рейтинги для игры
-        ratings = row.get("ratings") or {}
-        for user_name, rank in ratings.items():
-            rating = RatingModel(
-                user_name=user_name,
-                game_id=game.id,
-                rank=int(rank),
+        # Обработка каждой игры в отдельном try/catch для изоляции ошибок
+        try:
+            # Ищем игру по имени (можно доработать до поиска по bgg_id при необходимости)
+            game: GameModel | None = (
+                session.query(GameModel)
+                .filter(GameModel.name == name)
+                .one_or_none()
             )
-            session.add(rating)
-            ratings_added += 1
+
+            if game is None:
+                game = GameModel(name=name)
+                session.add(game)
+                session.flush()
+                games_created += 1
+                logger.debug(f"Created new game: {name}")
+            else:
+                games_updated += 1
+                logger.debug(f"Updating existing game: {name}")
+
+            # Всегда обновляем "локальные" поля из таблицы
+            niza_rank = row.get("niza_games_rank")
+            if niza_rank is not None:
+                try:
+                    game.niza_games_rank = int(niza_rank) if niza_rank != "" else None
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid niza_games_rank value for game '{name}': {niza_rank}")
+                    game.niza_games_rank = None
+            else:
+                game.niza_games_rank = None
+
+            game.genre = _parse_genre(row.get("genre"))
+
+            # Решаем, нужно ли идти в BGG за свежими данными
+            if _should_update_game(game, is_forced_update):
+                details = _fetch_bgg_details_for_row(row)
+                if details:
+                    game.bgg_id = details.get("id")
+                    game.bgg_rank = details.get("rank")
+                    game.yearpublished = details.get("yearpublished")
+                    game.bayesaverage = details.get("bayesaverage")
+                    game.usersrated = details.get("usersrated")
+                    game.minplayers = details.get("minplayers")
+                    game.maxplayers = details.get("maxplayers")
+                    game.playingtime = details.get("playingtime")
+                    game.minplaytime = details.get("minplaytime")
+                    game.maxplaytime = details.get("maxplaytime")
+                    game.minage = details.get("minage")
+                    game.average = details.get("average")
+                    game.numcomments = details.get("numcomments")
+                    game.owned = details.get("owned")
+                    game.trading = details.get("trading")
+                    game.wanting = details.get("wanting")
+                    game.wishing = details.get("wishing")
+                    game.averageweight = details.get("averageweight")
+                    game.numweights = details.get("numweights")
+                    game.categories = details.get("categories")
+                    game.mechanics = details.get("mechanics")
+                    game.designers = details.get("designers")
+                    game.publishers = details.get("publishers")
+                    game.image = details.get("image")
+                    game.thumbnail = details.get("thumbnail")
+                    game.description = details.get("description")
+                    games_bgg_updated += 1
+                    logger.debug(f"Updated BGG data for game: {name}")
+
+            session.flush()
+
+            # Добавляем рейтинги для игры
+            ratings = row.get("ratings") or {}
+            if not isinstance(ratings, dict):
+                logger.warning(f"Invalid ratings format for game '{name}': expected dict, got {type(ratings)}")
+                ratings = {}
+
+            for user_name, rank in ratings.items():
+                try:
+                    if not isinstance(user_name, str) or not user_name.strip():
+                        logger.warning(f"Invalid user_name for game '{name}': {user_name}")
+                        continue
+
+                    if rank is None or rank == "":
+                        continue
+
+                    rank_int = int(rank)
+                    if not (0 <= rank_int <= 10):  # Рейтинги от 0 до 10 (0 = не оценивал)
+                        logger.warning(f"Invalid rank value for game '{name}', user '{user_name}': {rank}")
+                        continue
+
+                    rating = RatingModel(
+                        user_name=user_name.strip(),
+                        game_id=game.id,
+                        rank=rank_int,
+                    )
+                    session.add(rating)
+                    ratings_added += 1
+
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Error processing rating for game '{name}', user '{user_name}': {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error processing game '{name}' in row {idx}: {type(e).__name__}: {e}", exc_info=True)
+            # Продолжаем обработку следующих игр вместо полного падения
+            continue
+
+        # Небольшая задержка между обработкой игр для снижения нагрузки на API
+        time.sleep(0.5)
 
     logger.info(
         f"Import completed: created={games_created}, updated={games_updated}, "

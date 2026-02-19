@@ -64,8 +64,8 @@ async def on_start(message: Message):
 
     # Добавляем команды админа
     if config.is_admin(message.from_user.id):
-        commands.insert(0, "/import_ratings — загрузить данные из Google-таблицы")
-        commands.insert(0, "/clear_database — очистить всю базу данных")
+        commands.insert(0, "/import — загрузить данные из Google-таблицы")
+        commands.insert(0, "/clear — очистить всю базу данных")
         logger.debug(f"Admin commands shown to user {user_name}")
 
     await message.answer(
@@ -74,7 +74,7 @@ async def on_start(message: Message):
     )
 
 
-async def on_import_ratings(message: Message):
+async def on_import(message: Message):
     """
     Команда для импорта данных из Google-таблицы в БД через backend API.
     Доступна только админу.
@@ -174,8 +174,8 @@ async def main():
 
     # Команды верхнего уровня
     dp.message.register(on_start, CommandStart())
-    dp.message.register(on_import_ratings, Command("import_ratings"))
-    dp.message.register(on_clear_database, Command("clear_database"))
+    dp.message.register(on_import, Command("import"))
+    dp.message.register(on_clear_database, Command("clear"))
     logger.debug("Commands registered")
 
     # Подключаем роутеры

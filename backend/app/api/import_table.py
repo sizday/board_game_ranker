@@ -35,6 +35,12 @@ async def import_table(
 ):
     """Import games data from table to database."""
     logger.info(f"Import table request: {len(request.rows)} rows, forced_update={request.is_forced_update}")
+
+    # Логируем структуру данных для диагностики ошибок
+    if request.rows:
+        logger.debug(f"Sample row: {request.rows[0]}")
+        logger.debug(f"Total rows to process: {len(request.rows)}")
+
     try:
         replace_all_from_table(
             db,
@@ -53,10 +59,17 @@ async def import_table(
             games_imported=len(request.rows),
             message="Импорт завершен. Перевод описаний запущен в фоне."
         )
+    except HTTPException:
+        # Не логируем HTTP исключения повторно
+        raise
     except Exception as exc:  # noqa: BLE001
         db.rollback()
-        logger.error(f"Error importing table data: {exc}", exc_info=True)
-        raise HTTPException(status_code=400, detail=str(exc))
+        logger.error(f"Error importing table data: {type(exc).__name__}: {exc}", exc_info=True)
+        # Логируем детали запроса для диагностики
+        logger.error(f"Request details: rows={len(request.rows)}, forced_update={request.is_forced_update}")
+        if request.rows:
+            logger.error(f"First row sample: {request.rows[0]}")
+        raise HTTPException(status_code=400, detail=f"Ошибка импорта данных: {type(exc).__name__}: {str(exc)}")
 
 
 
