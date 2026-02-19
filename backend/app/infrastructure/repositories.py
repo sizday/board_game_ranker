@@ -1,7 +1,7 @@
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional, Callable
 
 from sqlalchemy.orm import Session
 
@@ -198,6 +198,7 @@ def replace_all_from_table(
     rows: List[Dict[str, Any]],
     *,
     is_forced_update: bool = False,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> None:
     """
     Обновляет данные об играх и оценках на основе табличных данных.
@@ -367,13 +368,27 @@ def replace_all_from_table(
                     logger.warning(f"Error processing rating for game '{name}', user '{user_name}': {e}")
                     continue
 
+            # Сохраняем изменения для этой игры
+            session.commit()
+
+            # Отправляем прогресс если есть callback
+            if progress_callback:
+                progress_msg = f"Обработано игр: {idx}/{len(rows)} ({games_created} создано, {games_updated} обновлено, {games_bgg_updated} BGG обновлено)"
+                progress_callback(idx, len(rows), progress_msg)
+
         except Exception as e:
             logger.error(f"Error processing game '{name}' in row {idx}: {type(e).__name__}: {e}", exc_info=True)
-            # Продолжаем обработку следующих игр вместо полного падения
+            # Откатываем изменения для этой игры, но продолжаем обработку следующих
+            session.rollback()
             continue
 
         # Небольшая задержка между обработкой игр для снижения нагрузки на API
         time.sleep(0.5)
+
+    # Финальный callback с итоговой статистикой
+    if progress_callback:
+        final_msg = f"Импорт завершен! Создано: {games_created}, обновлено: {games_updated}, BGG обновлено: {games_bgg_updated}, рейтингов добавлено: {ratings_added}"
+        progress_callback(len(rows), len(rows), final_msg)
 
     logger.info(
         f"Import completed: created={games_created}, updated={games_updated}, "

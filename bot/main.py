@@ -89,20 +89,25 @@ async def on_import(message: Message):
         return
 
     logger.info(f"Admin {user_name} (ID: {user_id}) started ratings import")
-    await message.answer("Начинаю загрузку данных из Google-таблицы...")
+
+    # Отправляем начальное сообщение
+    await message.answer("🚀 Начинаю импорт данных из Google Sheets...")
 
     try:
         imported_count = await import_ratings_from_sheet(
             api_base_url=config.API_BASE_URL,
             sheet_csv_url=config.RATING_SHEET_CSV_URL,
         )
+
         if imported_count == 0:
             logger.warning("Import completed but no games were imported")
-            await message.answer("Таблица пуста, нечего импортировать.")
+            await message.answer("⚠️ Таблица пуста или данные не найдены.")
         else:
             logger.info(f"Import completed successfully: {imported_count} games imported")
             await message.answer(
-                f"Импорт данных в БД успешно завершен. Импортировано игр: {imported_count}."
+                f"✅ Импорт завершен!\n\n"
+                f"Загружено данных для {imported_count} игр.\n"
+                f"Игры добавляются в базу данных по одной с автоматической загрузкой данных из BGG."
             )
     except ValueError as exc:
         logger.error(f"Validation error during import: {exc}")

@@ -2,7 +2,7 @@ import csv
 import io
 import logging
 import time
-from typing import List, Dict
+from typing import List, Dict, Optional, Callable
 
 import httpx
 
@@ -56,6 +56,7 @@ def _parse_int_or_none(value: str) -> int | None:
 async def import_ratings_from_sheet(
     api_base_url: str,
     sheet_csv_url: str,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> int:
     """
     Загружает CSV из Google-таблицы, парсит её и отправляет данные в backend API.
@@ -99,10 +100,10 @@ async def import_ratings_from_sheet(
         logger.error(f"CSV header has insufficient columns: {len(header)}, header: {header}")
         raise ValueError(f"Недостаточно колонок в заголовке. Ожидается минимум 5, получено {len(header)}. Заголовок: {header}")
 
-    return await _process_sheet_data(api_base_url, rows)
+    return await _process_sheet_data(api_base_url, rows, progress_callback)
 
 
-async def _process_sheet_data(api_base_url: str, rows: List[List[str]]) -> int:
+async def _process_sheet_data(api_base_url: str, rows: List[List[str]], progress_callback: Optional[Callable[[int, int, str], None]] = None) -> int:
     """Обрабатывает данные листа и отправляет в backend"""
     logger.info(f"Processing sheet data: {len(rows)} rows")
     
@@ -183,7 +184,7 @@ async def _process_sheet_data(api_base_url: str, rows: List[List[str]]) -> int:
                 resp = await client.post(
                     f"{api_base_url}/api/import-table",
                     json={"rows": data_rows},
-                    timeout=60.0,
+                    timeout=120.0,  # Увеличиваем таймаут для импорта
                 )
                 resp.raise_for_status()
             logger.info(f"Successfully sent data to backend on attempt {attempt + 1}")
