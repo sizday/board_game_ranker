@@ -22,6 +22,8 @@ class UserResponse(BaseModel):
     id: str
     name: str
     telegram_id: int
+    created: bool = False
+    name_updated: bool = False
 
 
 class UserGamesResponse(BaseModel):
@@ -48,7 +50,7 @@ async def create_or_update_user(
         raise HTTPException(status_code=400, detail="User name is too long (maximum 100 characters)")
 
     try:
-        user = get_or_create_user(
+        user, created, name_updated = get_or_create_user(
             session=db,
             telegram_id=request.telegram_id,
             name=request.name.strip()
@@ -59,7 +61,9 @@ async def create_or_update_user(
         return UserResponse(
             id=str(user.id),
             name=user.name,
-            telegram_id=user.telegram_id
+            telegram_id=user.telegram_id,
+            created=created,
+            name_updated=name_updated
         )
 
     except Exception as exc:

@@ -16,29 +16,35 @@ logger = logging.getLogger(__name__)
 GAME_UPDATE_DELTA = timedelta(days=config.GAME_UPDATE_DAYS)
 
 
-def get_or_create_user(session: Session, telegram_id: int, name: str) -> UserModel:
+def get_or_create_user(session: Session, telegram_id: int, name: str) -> tuple[UserModel, bool, bool]:
     """
     Получает существующего пользователя по telegram_id или создает нового.
 
     :param session: Сессия базы данных
     :param telegram_id: Telegram ID пользователя
     :param name: Имя пользователя
-    :return: Модель пользователя
+    :return: Кортеж (модель пользователя, создан ли новый, изменено ли имя)
     """
     user = session.query(UserModel).filter(UserModel.telegram_id == telegram_id).first()
+
+    created = False
+    name_changed = False
 
     if user is None:
         user = UserModel(name=name, telegram_id=telegram_id)
         session.add(user)
         session.flush()
+        created = True
         logger.info(f"Created new user: {name} (telegram_id: {telegram_id})")
     else:
         # Обновляем имя, если оно изменилось
         if user.name != name:
+            old_name = user.name
             user.name = name
-            logger.debug(f"Updated user name: {name} (telegram_id: {telegram_id})")
+            name_changed = True
+            logger.info(f"Updated user name from '{old_name}' to '{name}' (telegram_id: {telegram_id})")
 
-    return user
+    return user, created, name_changed
 
 
 def get_user_games_with_bgg_links(session: Session, user_id: str) -> List[Dict[str, Any]]:
