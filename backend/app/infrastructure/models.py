@@ -6,6 +6,25 @@ from .db import Base
 from app.domain.models import GameGenre
 
 
+class UserModel(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=func.gen_random_uuid(), index=True)
+    name = Column(String, nullable=False)
+    telegram_id = Column(Integer, nullable=False, unique=True, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    ratings = relationship("RatingModel", back_populates="user", cascade="all, delete-orphan")
+    ranking_sessions = relationship("RankingSessionModel", back_populates="user", cascade="all, delete-orphan")
+
+
 class GameModel(Base):
     __tablename__ = "games"
 
@@ -65,10 +84,11 @@ class RatingModel(Base):
     __tablename__ = "ratings"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=func.gen_random_uuid(), index=True)
-    user_name = Column(String, nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     game_id = Column(UUID(as_uuid=True), ForeignKey("games.id", ondelete="CASCADE"), nullable=False)
     rank = Column(Integer, nullable=False)
 
+    user = relationship("UserModel", back_populates="ratings")
     game = relationship("GameModel", back_populates="ratings")
 
 
@@ -82,7 +102,7 @@ class RankingSessionModel(Base):
     __tablename__ = "ranking_sessions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=func.gen_random_uuid(), index=True)
-    user_name = Column(String, nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     # first_tier, second_tier, ordering, final
     state = Column(String, nullable=False, default="first_tier")
@@ -107,6 +127,8 @@ class RankingSessionModel(Base):
 
     current_index_first = Column(Integer, nullable=False, default=0)
     current_index_second = Column(Integer, nullable=False, default=0)
+
+    user = relationship("UserModel", back_populates="ranking_sessions")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(

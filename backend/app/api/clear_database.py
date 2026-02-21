@@ -21,6 +21,7 @@ class ClearDatabaseResponse(BaseModel):
     games_deleted: int = 0
     ratings_deleted: int = 0
     sessions_deleted: int = 0
+    users_deleted: int = 0
     message: str = ""
 
 
@@ -47,6 +48,7 @@ async def clear_database(
             games_deleted=result["games_deleted"],
             ratings_deleted=result["ratings_deleted"],
             sessions_deleted=result["sessions_deleted"],
+            users_deleted=result["users_deleted"],
             message="База данных успешно очищена."
         )
     except Exception as exc:  # noqa: BLE001

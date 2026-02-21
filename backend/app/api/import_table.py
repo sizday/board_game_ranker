@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional, Callable
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -34,7 +34,6 @@ async def import_table(
     request: ImportTableRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ):
     logger.critical("🚀🚀🚀 IMPORT_TABLE FUNCTION CALLED! 🚀🚀🚀")
     """Import games data from table to database."""
@@ -52,7 +51,6 @@ async def import_table(
             db,
             request.rows,
             is_forced_update=request.is_forced_update,
-            progress_callback=progress_callback,
         )
         db.commit()
         logger.info(f"Successfully imported {len(request.rows)} games")

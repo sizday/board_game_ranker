@@ -15,6 +15,8 @@ from typing import Dict, Any
 
 from handlers.ranking import router as ranking_router
 from handlers.bgg_game import router as bgg_game_router
+from handlers.login import router as login_router
+from handlers.my_games import router as my_games_router
 from services.import_ratings import import_ratings_from_sheet
 from services.clear_database import clear_database
 from config import config
@@ -63,6 +65,8 @@ async def on_start(message: Message):
     logger.info(f"User {user_name} (ID: {user_id}) started bot")
     
     commands = [
+        "/login — зарегистрироваться в системе",
+        "/my_games — посмотреть свои игры",
         "/start_ranking — начать формирование рейтинга"
     ]
 
@@ -143,15 +147,17 @@ async def on_clear_database(message: Message):
         games_deleted = result.get("games_deleted", 0)
         ratings_deleted = result.get("ratings_deleted", 0)
         sessions_deleted = result.get("sessions_deleted", 0)
+        users_deleted = result.get("users_deleted", 0)
 
-        logger.info(f"Database cleared successfully by admin {user_name}: games={games_deleted}, ratings={ratings_deleted}, sessions={sessions_deleted}")
+        logger.info(f"Database cleared successfully by admin {user_name}: games={games_deleted}, ratings={ratings_deleted}, sessions={sessions_deleted}, users={users_deleted}")
 
         await message.answer(
             "✅ База данных успешно очищена!\n\n"
             f"Удалено:\n"
             f"• Игр: {games_deleted}\n"
             f"• Рейтингов: {ratings_deleted}\n"
-            f"• Сессий ранжирования: {sessions_deleted}"
+            f"• Сессий ранжирования: {sessions_deleted}\n"
+            f"• Пользователей: {users_deleted}"
         )
 
     except RuntimeError as exc:
@@ -190,6 +196,8 @@ async def main():
     # Подключаем роутеры
     dp.include_router(ranking_router)
     dp.include_router(bgg_game_router)
+    dp.include_router(login_router)
+    dp.include_router(my_games_router)
     logger.info("Routers included")
 
     logger.info("Starting polling...")

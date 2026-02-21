@@ -8,12 +8,73 @@ from sqlalchemy.orm import Session
 from app.config import config
 from app.domain.models import GameGenre
 from app.services.bgg import get_boardgame_details, search_boardgame
-from .models import GameModel, RatingModel, RankingSessionModel
+from .models import GameModel, RatingModel, RankingSessionModel, UserModel
 
 logger = logging.getLogger(__name__)
 
 
 GAME_UPDATE_DELTA = timedelta(days=config.GAME_UPDATE_DAYS)
+
+
+def get_or_create_user(session: Session, telegram_id: int, name: str) -> UserModel:
+    """
+    Получает существующего пользователя по telegram_id или создает нового.
+
+    :param session: Сессия базы данных
+    :param telegram_id: Telegram ID пользователя
+    :param name: Имя пользователя
+    :return: Модель пользователя
+    """
+    user = session.query(UserModel).filter(UserModel.telegram_id == telegram_id).first()
+
+    if user is None:
+        user = UserModel(name=name, telegram_id=telegram_id)
+        session.add(user)
+        session.flush()
+        logger.info(f"Created new user: {name} (telegram_id: {telegram_id})")
+    else:
+        # Обновляем имя, если оно изменилось
+        if user.name != name:
+            user.name = name
+            logger.debug(f"Updated user name: {name} (telegram_id: {telegram_id})")
+
+    return user
+
+
+def get_user_games_with_bgg_links(session: Session, user_id: str) -> List[Dict[str, Any]]:
+    """
+    Получает список игр пользователя с ссылками на BGG, отсортированный лексикографически.
+
+    :param session: Сессия базы данных
+    :param user_id: ID пользователя
+    :return: Список игр с информацией о BGG
+    """
+    from uuid import UUID
+
+    games = (
+        session.query(GameModel)
+        .join(RatingModel)
+        .filter(
+            RatingModel.user_id == UUID(user_id),
+            RatingModel.rank > 0,  # Только игры с оценками (не 0)
+            GameModel.bgg_id.isnot(None)  # Только игры с BGG ID
+        )
+        .order_by(GameModel.name)  # Лексикографическая сортировка
+        .all()
+    )
+
+    result = []
+    for game in games:
+        result.append({
+            "id": str(game.id),
+            "name": game.name,
+            "bgg_id": game.bgg_id,
+            "bgg_url": f"https://boardgamegeek.com/boardgame/{game.bgg_id}",
+            "rank": game.bgg_rank,
+            "year": game.yearpublished,
+        })
+
+    return result
 
 
 def save_game_from_bgg_data(
@@ -446,9 +507,15 @@ def replace_all_from_table(
                         logger.warning(f"Invalid rank value for game '{name}', user '{user_name}': {rank} (type: {type(rank)})")
                         continue
 
+                    # Ищем пользователя по имени (предполагаем, что имя в таблице соответствует имени пользователя)
+                    user = session.query(UserModel).filter(UserModel.name == user_name.strip()).first()
+                    if not user:
+                        logger.warning(f"User '{user_name}' not found, skipping rating for game '{name}'")
+                        continue
+
                     # Проверяем, существует ли уже рейтинг для этого пользователя и игры
                     existing_rating = session.query(RatingModel).filter(
-                        RatingModel.user_name == user_name.strip(),
+                        RatingModel.user_id == user.id,
                         RatingModel.game_id == game.id
                     ).first()
 
@@ -460,7 +527,7 @@ def replace_all_from_table(
                     else:
                         # Создаем новый рейтинг (включая 0 - место для будущего рейтинга)
                         rating = RatingModel(
-                            user_name=user_name.strip(),
+                            user_id=user.id,
                             game_id=game.id,
                             rank=rank,
                         )
@@ -494,10 +561,8 @@ def replace_all_from_table(
         final_msg = f"Импорт завершен! Создано: {games_created}, обновлено: {games_updated}, BGG обновлено: {games_bgg_updated}, не найдено на BGG: {games_bgg_not_found}, рейтингов добавлено: {ratings_added}, обновлено: {ratings_updated}"
         progress_callback(len(rows), len(rows), final_msg)
 
-    # Удаляем рейтинги пользователя "общий" после импорта, так как это не настоящий пользователь
-    deleted_obshii = session.query(RatingModel).filter(RatingModel.user_name.ilike('%общий%')).delete()
-    if deleted_obshii > 0:
-        logger.info(f"Удалено {deleted_obshii} рейтингов пользователя 'общий'")
+    # Примечание: рейтинги пользователя "общий" больше не создаются,
+    # так как такого пользователя нет в таблице users
 
     session.commit()
 
@@ -527,15 +592,20 @@ def clear_all_data(session: Session) -> Dict[str, int]:
     sessions_deleted = session.query(RankingSessionModel).delete()
     logger.info(f"Deleted {sessions_deleted} ranking sessions")
 
+    # Удаляем пользователей
+    users_deleted = session.query(UserModel).delete()
+    logger.info(f"Deleted {users_deleted} users")
+
     # Удаляем игры (последними, так как на них могут ссылаться рейтинги)
     games_deleted = session.query(GameModel).delete()
     logger.info(f"Deleted {games_deleted} games")
 
-    logger.info(f"Database cleanup completed: games={games_deleted}, ratings={ratings_deleted}, sessions={sessions_deleted}")
+    logger.info(f"Database cleanup completed: games={games_deleted}, ratings={ratings_deleted}, sessions={sessions_deleted}, users={users_deleted}")
 
     return {
         "games_deleted": games_deleted,
         "ratings_deleted": ratings_deleted,
         "sessions_deleted": sessions_deleted,
+        "users_deleted": users_deleted,
     }
 

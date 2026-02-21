@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter
 
 print("📦 IMPORTING API MODULES", flush=True)
-from app.api import import_table, clear_database, bgg, games
+from app.api import import_table, clear_database, bgg, games, users
 # from app.api import ranking  # Temporarily disabled - may have import issues
 print("✅ API MODULES IMPORTED", flush=True)
 
@@ -24,5 +24,7 @@ router.include_router(bgg.router)
 logger.info("BGG router included")
 router.include_router(games.router)
 logger.info("Games router included")
+router.include_router(users.router)
+logger.info("Users router included")
 
 logger.debug("API routes registered")
