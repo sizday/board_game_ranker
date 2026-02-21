@@ -3,6 +3,7 @@ import logging
 import sys
 import time
 from sqlalchemy import create_engine, text
+
 from app.config import config
 from app.utils.logging import setup_logging
 

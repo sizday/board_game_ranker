@@ -5,13 +5,13 @@ set -e  # Выходим при любой ошибке, кроме тех, чт
 echo "=== Starting backend service ==="
 
 echo "Step 1: Waiting for database to be ready..."
-if ! python scripts/wait_for_db.py; then
+if ! (cd /app && python scripts/wait_for_db.py); then
   echo "ERROR: Failed to connect to database after 30 seconds"
   exit 1
 fi
 
 echo "Step 2: Creating/updating database tables..."
-python scripts/check_tables.py || {
+cd /app && python scripts/check_tables.py || {
   echo "Warning: Table creation had issues, but continuing..."
 }
 
