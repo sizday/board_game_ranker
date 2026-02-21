@@ -324,7 +324,6 @@ def replace_all_from_table(
     rows: List[Dict[str, Any]],
     *,
     is_forced_update: bool = False,
-    progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> int:
     """
     Обновляет данные об играх и оценках на основе табличных данных.
@@ -542,11 +541,6 @@ def replace_all_from_table(
             # Сохраняем изменения для этой игры
             session.commit()
 
-            # Отправляем прогресс если есть callback
-            if progress_callback:
-                progress_msg = f"Обработано игр: {idx}/{len(rows)} ({games_created} создано, {games_updated} обновлено, {games_bgg_updated} BGG обновлено, {games_bgg_not_found} не найдено на BGG, {ratings_added} рейтингов добавлено, {ratings_updated} обновлено)"
-                progress_callback(idx, len(rows), progress_msg)
-
         except Exception as e:
             logger.error(f"Error processing game '{name}' in row {idx}: {type(e).__name__}: {e}", exc_info=True)
             # Откатываем изменения для этой игры, но продолжаем обработку следующих
@@ -555,11 +549,6 @@ def replace_all_from_table(
 
         # Небольшая задержка между обработкой игр для снижения нагрузки на API
         time.sleep(config.BGG_REQUEST_DELAY)
-
-    # Финальный callback с итоговой статистикой
-    if progress_callback:
-        final_msg = f"Импорт завершен! Создано: {games_created}, обновлено: {games_updated}, BGG обновлено: {games_bgg_updated}, не найдено на BGG: {games_bgg_not_found}, рейтингов добавлено: {ratings_added}, обновлено: {ratings_updated}"
-        progress_callback(len(rows), len(rows), final_msg)
 
     # Примечание: рейтинги пользователя "общий" больше не создаются,
     # так как такого пользователя нет в таблице users

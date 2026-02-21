@@ -1,14 +1,10 @@
-print("🚀 STARTING WSGI.PY", flush=True)
-
 from fastapi import FastAPI
 
-app = FastAPI(title="Board Game Ranker API", openapi_url=None)
+app = FastAPI(title="Board Game Ranker API")
 
 # Подключаем API роутеры
 from app.api.routes import router as api_router
 app.include_router(api_router, prefix="/api")
-
-print("✅ FASTAPI APP CREATED WITHOUT ROUTERS", flush=True)
 
 @app.get("/health")
 def health():
